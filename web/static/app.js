@@ -15,6 +15,7 @@ function startSearch(e) {
     const params = {
         keywords: form.keywords.value,
         uf: form.uf.value,
+        status: form.status.value,
         date_from: form.date_from.value,
         date_to: form.date_to.value,
         contratante: form.contratante.value,

@@ -93,18 +93,26 @@ class PNCPFetcher:
         keyword: str,
         page: int = 1,
         page_size: int = config.DEFAULT_SEARCH_PAGE_SIZE,
+        status: str | None = None,
+        uf: str | None = None,
     ) -> tuple[list[dict], int]:
         """
         Search processes matching *keyword*.
         Returns (items_list, total_count).
         """
-        data = self._get(config.SEARCH_URL, params={
+        params = {
             "q": keyword,
             "tipos_documento": "edital",
             "ordenacao": "-data",
             "pagina": page,
             "tam_pagina": page_size,
-        })
+        }
+        if status:
+            params["status"] = status
+        if uf:
+            params["ufs"] = uf.upper()
+
+        data = self._get(config.SEARCH_URL, params=params)
         items = data.get("items", [])
         total = data.get("total", 0)
         log.info("Search '%s' page %d → %d items (total %d)", keyword, page, len(items), total)
@@ -119,13 +127,34 @@ class PNCPFetcher:
         log.debug("Items count %s/%s/%s → %s", cnpj, ano, seq, count)
         return int(count)
 
-    def get_items(self, cnpj: str, ano: int, seq: int) -> list[dict]:
-        """Fetch ALL items for a process in one call."""
-        items = self._get(
-            config.ITEMS_URL.format(cnpj=cnpj, ano=ano, seq=seq)
-        )
-        log.info("Fetched %d items for %s/%s/%s", len(items), cnpj, ano, seq)
-        return items
+    def get_items(
+        self, cnpj: str, ano: int, seq: int, page_size: int = 500,
+    ) -> list[dict]:
+        """Fetch ALL items for a process, paginating if necessary."""
+        total_count = self.get_items_count(cnpj, ano, seq)
+        if total_count == 0:
+            return []
+
+        all_items: list[dict] = []
+        page = 1
+        total_pages = -(-total_count // page_size)  # ceil div
+
+        while page <= total_pages:
+            items = self._get(
+                config.ITEMS_URL.format(cnpj=cnpj, ano=ano, seq=seq),
+                params={"pagina": page, "tamanhoPagina": page_size},
+            )
+            all_items.extend(items)
+            log.debug(
+                "Items page %d/%d for %s/%s/%s → %d items",
+                page, total_pages, cnpj, ano, seq, len(items),
+            )
+            if len(items) < page_size:
+                break
+            page += 1
+
+        log.info("Fetched %d items for %s/%s/%s", len(all_items), cnpj, ano, seq)
+        return all_items
 
     # ── Process detail ───────────────────────────────────────────────────
     def get_process_detail(self, cnpj: str, ano: int, seq: int) -> dict:
@@ -154,6 +183,7 @@ class PNCPFetcher:
         date_from: str | None = None,
         date_to: str | None = None,
         contratante: str | None = None,
+        status: str | None = None,
         max_processes: int = config.DEFAULT_MAX_PROCESSES,
     ) -> list[dict]:
         """
@@ -166,7 +196,9 @@ class PNCPFetcher:
         for kw in keywords:
             page = 1
             while True:
-                items, total = self.search_processes(kw, page=page)
+                items, total = self.search_processes(
+                    kw, page=page, status=status, uf=uf,
+                )
                 if not items:
                     break
 
@@ -175,9 +207,7 @@ class PNCPFetcher:
                     if pid in seen:
                         continue
 
-                    # ── client-side filters ───────────────────────────
-                    if uf and proc.get("uf", "").upper() != uf.upper():
-                        continue
+                    # ── client-side filters (date, contratante) ────────
 
                     if date_from:
                         pub = proc.get("data_publicacao_pncp", "")[:10]

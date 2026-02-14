@@ -16,7 +16,7 @@ PROCESS_DETAIL_URL = (
 PORTAL_PROCESS_URL = "https://pncp.gov.br/app/editais/{cnpj}/{ano}/{seq}"
 
 # ── Defaults ─────────────────────────────────────────────────────────────────
-DEFAULT_SEARCH_PAGE_SIZE = 50
+DEFAULT_SEARCH_PAGE_SIZE = 100
 DEFAULT_MAX_PROCESSES = 100
 DEFAULT_FUZZY_THRESHOLD = 80
 DEFAULT_OUTPUT_DIR = "./output"

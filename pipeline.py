@@ -29,7 +29,7 @@ class ExtractionParams:
     __slots__ = (
         "keywords", "uf", "date_from", "date_to", "contratante",
         "max_processes", "fuzzy_threshold", "rate_limit", "output_dir",
-        "screenshots",
+        "screenshots", "status",
     )
 
     def __init__(
@@ -44,6 +44,7 @@ class ExtractionParams:
         rate_limit: float = config.RATE_LIMIT_DELAY,
         output_dir: str = config.DEFAULT_OUTPUT_DIR,
         screenshots: bool = False,
+        status: str | None = None,
     ):
         self.keywords = keywords
         self.uf = uf
@@ -55,6 +56,7 @@ class ExtractionParams:
         self.rate_limit = rate_limit
         self.output_dir = output_dir
         self.screenshots = screenshots
+        self.status = status
 
     @classmethod
     def from_dict(cls, data: dict) -> ExtractionParams:
@@ -70,6 +72,7 @@ class ExtractionParams:
             rate_limit=float(data.get("rate_limit", config.RATE_LIMIT_DELAY)),
             output_dir=data.get("output_dir", config.DEFAULT_OUTPUT_DIR),
             screenshots=bool(data.get("screenshots", False)),
+            status=data.get("status") or None,
         )
 
 
@@ -138,6 +141,7 @@ def run_extraction(
             date_from=params.date_from,
             date_to=params.date_to,
             contratante=params.contratante,
+            status=params.status,
             max_processes=params.max_processes,
         )
     except CaptchaDetected as e:
