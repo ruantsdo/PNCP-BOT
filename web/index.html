@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PNCP Bot — Busca de Itens</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+
+<body>
+
+    <!-- ── HEADER ─────────────────────────────────────────────── -->
+    <header>
+        <div class="header-inner">
+            <h1>🏛️ PNCP Bot</h1>
+            <span class="subtitle">Busca inteligente no Portal Nacional de Contratações Públicas</span>
+        </div>
+    </header>
+
+    <!-- ── SEARCH PANEL ───────────────────────────────────────── -->
+    <section class="search-panel" id="search-panel">
+        <form id="search-form" onsubmit="startSearch(event)">
+            <div class="form-main">
+                <label for="keywords">Palavras-chave</label>
+                <input type="text" id="keywords" name="keywords"
+                    placeholder='Ex: cabo [vermelho], tomada [20a], disjuntor' required autocomplete="off">
+                <p class="hint">Separe termos por vírgula. Qualificadores entre [colchetes] são opcionais e destacam
+                    resultados mais relevantes.</p>
+            </div>
+
+            <div class="form-grid">
+                <div class="form-group">
+                    <label for="uf">Estado (UF)</label>
+                    <select id="uf" name="uf">
+                        <option value="">Todos</option>
+                        {% for code, name in uf_codes.items() %}
+                        <option value="{{ code }}">{{ code }} — {{ name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label for="date_from">Data início</label>
+                    <input type="date" id="date_from" name="date_from">
+                </div>
+
+                <div class="form-group">
+                    <label for="date_to">Data fim</label>
+                    <input type="date" id="date_to" name="date_to">
+                </div>
+
+                <div class="form-group">
+                    <label for="contratante">Contratante</label>
+                    <input type="text" id="contratante" name="contratante" placeholder="Nome do órgão…">
+                </div>
+
+                <div class="form-group">
+                    <label for="max_processes">Máx. processos</label>
+                    <input type="number" id="max_processes" name="max_processes" value="30" min="1" max="500">
+                </div>
+
+                <div class="form-group">
+                    <label for="fuzzy_threshold">Fuzzy (%)</label>
+                    <input type="number" id="fuzzy_threshold" name="fuzzy_threshold" value="80" min="0" max="100">
+                </div>
+            </div>
+
+            <button type="submit" class="btn-search" id="btn-search">
+                <span id="btn-search-text">🔍 Buscar Itens</span>
+            </button>
+        </form>
+    </section>
+
+    <!-- ── PROGRESS ───────────────────────────────────────────── -->
+    <section class="progress-section hidden" id="progress-section">
+        <div class="progress-bar-container">
+            <div class="progress-bar" id="progress-bar"></div>
+        </div>
+        <p class="progress-label" id="progress-label">Iniciando…</p>
+        <div class="log-panel" id="log-panel"></div>
+    </section>
+
+    <!-- ── RESULTS ────────────────────────────────────────────── -->
+    <section class="results-section hidden" id="results-section">
+        <div class="results-header">
+            <div class="results-stats" id="results-stats"></div>
+            <div class="results-actions">
+                <div class="filter-pills">
+                    <button class="pill active" data-filter="all">Todos</button>
+                    <button class="pill" data-filter="pending">Pendentes</button>
+                    <button class="pill" data-filter="approved">Aprovados</button>
+                    <button class="pill" data-filter="rejected">Rejeitados</button>
+                    <button class="pill" data-filter="exact">✓ Exatos</button>
+                </div>
+                <input type="text" id="filter-text" placeholder="Filtrar descrição…" class="filter-input">
+                <button class="btn-action btn-export" onclick="exportApproved()">⬇ Exportar Aprovados</button>
+                <button class="btn-action btn-new" onclick="newSearch()">🔄 Nova Busca</button>
+            </div>
+        </div>
+
+        <div class="items-grid" id="items-grid"></div>
+    </section>
+
+    <script src="/static/app.js"></script>
+</body>
+
+</html>
