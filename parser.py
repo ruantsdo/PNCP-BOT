@@ -45,19 +45,29 @@ def parse_keywords(raw: str) -> list[ParsedKeyword]:
     --------
     >>> parse_keywords("cabo [vermelho], tomada [20a]")
     [cabo [vermelho], tomada [20a]]
+    >>> parse_keywords("cabo [vermelho, grosso]")
+    [cabo [vermelho] [grosso]]
     >>> parse_keywords("cabo, tomada")
     [cabo, tomada]
     """
     keywords: list[ParsedKeyword] = []
-    for part in raw.split(","):
+
+    # Split on commas that are NOT inside brackets
+    parts = re.split(r",\s*(?![^\[]*\])", raw)
+
+    for part in parts:
         part = part.strip()
         if not part:
             continue
 
         qualifiers: list[str] = []
-        # extract all [...] groups
+        # extract all [...] groups, then split their contents on comma
         for m in re.finditer(r"\[([^\]]+)\]", part):
-            qualifiers.append(normalize(m.group(1)))
+            inner = m.group(1)
+            for q in inner.split(","):
+                q = q.strip()
+                if q:
+                    qualifiers.append(normalize(q))
         # base term = everything outside brackets
         base = re.sub(r"\[[^\]]*\]", "", part).strip()
         if base:
@@ -78,8 +88,10 @@ class MatchResult:
 
     @property
     def is_exact(self) -> bool:
-        """True when base term AND all qualifiers matched."""
-        return len(self.qualifiers_unmet) == 0
+        """True when base term matched AND at least one qualifier matched (or no qualifiers)."""
+        if not self.keyword.qualifiers:
+            return True  # no qualifiers defined → base term match is exact
+        return len(self.qualifiers_met) > 0
 
     def __repr__(self) -> str:
         tag = "✓" if self.is_exact else "~"
@@ -100,8 +112,10 @@ def matches_item(
     Matching logic per keyword:
     1. Base term must appear in the normalised description (exact substring).
        If not found, try fuzzy ``partial_ratio ≥ threshold``.
-    2. Qualifiers are **soft** — they are checked but do NOT exclude items.
-       Each qualifier is recorded as met or unmet for scoring/highlighting.
+    2. When a keyword has qualifiers, **at least one** qualifier must be
+       present in the description — otherwise the item is skipped
+       (prevents false positives like "aparelho com cabo" matching "cabo [vermelho]").
+    3. All qualifiers are recorded as met/unmet for exact-vs-partial scoring.
     """
     norm_desc = normalize(description)
     matched: list[MatchResult] = []
@@ -118,9 +132,14 @@ def matches_item(
         if not base_ok:
             continue
 
-        # qualifiers — soft: record which ones matched
+        # qualifiers — check which ones matched
         quals_met = [q for q in kw.qualifiers if q in norm_desc]
         quals_unmet = [q for q in kw.qualifiers if q not in norm_desc]
+
+        # If the keyword has qualifiers but NONE matched, skip this item
+        # (base term alone in a different context = false positive)
+        if kw.qualifiers and not quals_met:
+            continue
 
         matched.append(MatchResult(
             keyword=kw,

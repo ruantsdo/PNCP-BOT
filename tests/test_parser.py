@@ -82,13 +82,20 @@ class TestMatchesItem:
         assert len(result) == 1
         assert result[0].is_exact  # base + qualifier both matched
 
-    def test_qualifier_soft_match(self):
-        """Qualifiers are soft: item still matches on base term even without qualifier."""
+    def test_qualifier_no_match_excludes(self):
+        """When qualifiers exist but NONE match, the item is excluded."""
         kws = parse_keywords("cabo [vermelho]")
         result = matches_item("CABO AZUL FLEXÍVEL 2,5MM", kws)
-        assert len(result) == 1  # matches on 'cabo'
-        assert not result[0].is_exact  # qualifier 'vermelho' not met
-        assert result[0].qualifiers_unmet == ["vermelho"]
+        assert result == []  # no qualifier matched → excluded
+
+    def test_qualifier_partial_match(self):
+        """When at least one qualifier matches, it's an exact match (OR logic)."""
+        kws = parse_keywords("cabo [vermelho, grosso]")
+        result = matches_item("CABO VERMELHO FLEXÍVEL 2,5MM", kws)
+        assert len(result) == 1
+        assert result[0].is_exact  # at least 'vermelho' matched → exact
+        assert result[0].qualifiers_met == ["vermelho"]
+        assert result[0].qualifiers_unmet == ["grosso"]
 
     def test_or_logic(self):
         kws = parse_keywords("cabo, tomada")
