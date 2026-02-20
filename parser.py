@@ -88,14 +88,34 @@ class MatchResult:
 
     @property
     def is_exact(self) -> bool:
-        """True when base term matched AND at least one qualifier matched (or no qualifiers)."""
+        """True when ALL qualifiers are met (or no qualifiers defined)."""
         if not self.keyword.qualifiers:
-            return True  # no qualifiers defined → base term match is exact
-        return len(self.qualifiers_met) > 0
+            return True
+        return len(self.qualifiers_unmet) == 0
+
+    @property
+    def is_compound(self) -> bool:
+        """True when at least one qualifier matched but not all."""
+        if not self.keyword.qualifiers:
+            return False
+        return len(self.qualifiers_met) > 0 and len(self.qualifiers_unmet) > 0
 
     def __repr__(self) -> str:
-        tag = "✓" if self.is_exact else "~"
+        if self.is_exact:
+            tag = "✓"
+        elif self.is_compound:
+            tag = "◐"
+        else:
+            tag = "~"
         return f"{tag} {self.keyword}"
+
+
+
+# ── Word-boundary helper ─────────────────────────────────────────────────
+def _word_boundary_match(term: str, text: str) -> bool:
+    """Check if *term* appears in *text* as a standalone token."""
+    escaped = re.escape(term)
+    return bool(re.search(rf"(?<![a-zA-Z0-9]){escaped}(?![a-zA-Z0-9])", text))
 
 
 # ── Matching ─────────────────────────────────────────────────────────────────
@@ -132,9 +152,9 @@ def matches_item(
         if not base_ok:
             continue
 
-        # qualifiers — check which ones matched
-        quals_met = [q for q in kw.qualifiers if q in norm_desc]
-        quals_unmet = [q for q in kw.qualifiers if q not in norm_desc]
+        # qualifiers — check which ones matched (word-boundary)
+        quals_met = [q for q in kw.qualifiers if _word_boundary_match(q, norm_desc)]
+        quals_unmet = [q for q in kw.qualifiers if not _word_boundary_match(q, norm_desc)]
 
         # If the keyword has qualifiers but NONE matched, skip this item
         # (base term alone in a different context = false positive)

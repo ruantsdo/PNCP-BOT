@@ -89,11 +89,12 @@ class TestMatchesItem:
         assert result == []  # no qualifier matched → excluded
 
     def test_qualifier_partial_match(self):
-        """When at least one qualifier matches, it's an exact match (OR logic)."""
+        """When some (not all) qualifiers match, it's a compound match."""
         kws = parse_keywords("cabo [vermelho, grosso]")
         result = matches_item("CABO VERMELHO FLEXÍVEL 2,5MM", kws)
         assert len(result) == 1
-        assert result[0].is_exact  # at least 'vermelho' matched → exact
+        assert result[0].is_compound  # 'vermelho' matched but 'grosso' did not → compound
+        assert not result[0].is_exact
         assert result[0].qualifiers_met == ["vermelho"]
         assert result[0].qualifiers_unmet == ["grosso"]
 

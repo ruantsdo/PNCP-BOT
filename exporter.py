@@ -18,6 +18,7 @@ log = logging.getLogger("pncp.exporter")
 FIELDS = [
     "process_id",
     "item_id",
+    "item_index",
     "descricao",
     "quantidade",
     "unidade",
@@ -29,7 +30,7 @@ FIELDS = [
     "source_url",
     "capture_path",
     "matched_keywords",
-    "match_quality",     # exact (all qualifiers met) or partial
+    "match_quality",     # exact / compound / partial
     "status",           # for review UI: pending / approved / rejected
 ]
 
@@ -40,20 +41,23 @@ def build_record(
     item: dict,
     matched_keywords: list,
     capture_path: str = "",
+    item_index: int = 0,
 ) -> dict[str, Any]:
     """Merge process-level and item-level data into a flat output record."""
     cnpj = process.get("orgao_cnpj", "")
     ano = process.get("ano", "")
     seq = process.get("numero_sequencial", "")
 
-    # Check if any match has all qualifiers met (exact match)
-    has_exact = any(
-        getattr(m, "is_exact", True) for m in matched_keywords
-    )
+    # Determine match quality:
+    #   exact    = all qualifiers met
+    #   compound = at least one qualifier met but not all
+    #   partial  = no qualifiers defined (base term match only)
+    quality = _determine_quality(matched_keywords)
 
     return {
         "process_id": process.get("numero_controle_pncp", ""),
         "item_id": item.get("numeroItem", ""),
+        "item_index": item_index,
         "descricao": item.get("descricao", ""),
         "quantidade": item.get("quantidade", 0),
         "unidade": item.get("unidadeMedida", ""),
@@ -65,9 +69,27 @@ def build_record(
         "source_url": f"https://pncp.gov.br/app/editais/{cnpj}/{ano}/{seq}",
         "capture_path": capture_path,
         "matched_keywords": ", ".join(str(k) for k in matched_keywords),
-        "match_quality": "exact" if has_exact else "partial",
+        "match_quality": quality,
         "status": "pending",
     }
+
+
+def _determine_quality(matched_keywords: list) -> str:
+    """Determine match quality from list of MatchResult objects."""
+    for m in matched_keywords:
+        quals = getattr(m, 'keyword', None)
+        if quals is None:
+            continue
+        qualifiers = getattr(quals, 'qualifiers', [])
+        if not qualifiers:
+            continue  # no qualifiers → check next match
+        met = getattr(m, 'qualifiers_met', [])
+        unmet = getattr(m, 'qualifiers_unmet', [])
+        if len(met) == len(qualifiers):
+            return "exact"    # all qualifiers met
+        if len(met) > 0:
+            return "compound" # some but not all
+    return "partial"
 
 
 def _extract_fornecedor(item: dict) -> str:

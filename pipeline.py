@@ -179,11 +179,11 @@ def run_extraction(
             emit(f"  ⚠ Erro ao buscar itens: {exc}")
             continue
 
-        for item in items:
+        for item_index, item in enumerate(items):
             desc = item.get("descricao", "")
             matched = matches_item(desc, parsed, fuzzy_threshold=params.fuzzy_threshold)
             if matched:
-                rec = build_record(proc, item, matched)
+                rec = build_record(proc, item, matched, item_index=item_index)
                 records.append(rec)
                 emit(f"  ✓ Item #{item.get('numeroItem')} → {desc[:60]}")
 

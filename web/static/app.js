@@ -5,6 +5,22 @@ let currentFilter = "all";
 let currentJobId = null;
 let pollTimer = null;
 
+// Feature 2: Track which items have been opened
+const readItems = new Set();
+
+// Feature 4: Active smart tag filters
+const activeSmartTags = new Set();
+
+// Feature 5: Cache for check-results per item
+const checkCache = {}; // key: "cnpj/ano/seq/itemId" → { status, data }
+
+// ── Feature 1: Pagination helper ────────────────────────────────────────
+function getPageNumber(item) {
+    const idx = parseInt(item.item_index, 10);
+    if (isNaN(idx) || idx < 0) return 1;
+    return Math.floor(idx / 50) + 1;
+}
+
 // ── Start search ────────────────────────────────────────────────────────
 function startSearch(e) {
     e.preventDefault();
@@ -33,6 +49,9 @@ function startSearch(e) {
     document.getElementById("log-panel").innerHTML = "";
     document.getElementById("progress-bar").style.width = "0%";
     document.getElementById("progress-label").textContent = "Iniciando…";
+
+    // Feature 4: Build smart tags from keywords
+    buildSmartTags(form.keywords.value);
 
     fetch("/api/search", {
         method: "POST",
@@ -121,6 +140,7 @@ function updateStats() {
     const approved = allResults.filter(r => r.status === "approved").length;
     const rejected = allResults.filter(r => r.status === "rejected").length;
     const exact = allResults.filter(r => r.match_quality === "exact").length;
+    const compound = allResults.filter(r => r.match_quality === "compound").length;
     const partial = allResults.filter(r => r.match_quality === "partial").length;
 
     document.getElementById("results-stats").innerHTML = `
@@ -128,6 +148,7 @@ function updateStats() {
     <span><span class="dot dot-approved"></span> ${approved} aprovados</span>
     <span><span class="dot dot-rejected"></span> ${rejected} rejeitados</span>
     <span><span class="dot dot-exact"></span> ${exact} exatos</span>
+    <span><span class="dot dot-compound"></span> ${compound} compostos</span>
     <span><span class="dot dot-partial"></span> ${partial} parciais</span>
     <span>Total: ${allResults.length}</span>
   `;
@@ -137,18 +158,29 @@ function renderCards() {
     const grid = document.getElementById("items-grid");
     const search = (document.getElementById("filter-text").value || "").toLowerCase();
 
+    const qualityFilters = ["exact", "compound", "partial"];
+
     const filtered = allResults.filter(item => {
-        if (currentFilter === "exact" && item.match_quality !== "exact") return false;
-        if (currentFilter !== "all" && currentFilter !== "exact" && item.status !== currentFilter) return false;
+        if (qualityFilters.includes(currentFilter) && item.match_quality !== currentFilter) return false;
+        if (currentFilter !== "all" && !qualityFilters.includes(currentFilter) && item.status !== currentFilter) return false;
         if (search && !item.descricao.toLowerCase().includes(search)) return false;
+
+        // Feature 4: Smart tag filter — item must contain ALL active tags (word-boundary)
+        if (activeSmartTags.size > 0) {
+            for (const tag of activeSmartTags) {
+                if (!wordBoundaryMatch(tag, item.descricao)) return false;
+            }
+        }
+
         return true;
     });
 
-    // Sort: exact matches first, then by status (pending first)
+    // Sort: exact first, then compound, then partial; within same quality sort by status
     filtered.sort((a, b) => {
-        if (a.match_quality !== b.match_quality) {
-            return a.match_quality === "exact" ? -1 : 1;
-        }
+        const qualityOrder = { exact: 0, compound: 1, partial: 2 };
+        const qa = qualityOrder[a.match_quality] ?? 2;
+        const qb = qualityOrder[b.match_quality] ?? 2;
+        if (qa !== qb) return qa - qb;
         const statusOrder = { pending: 0, approved: 1, rejected: 2 };
         return (statusOrder[a.status] || 0) - (statusOrder[b.status] || 0);
     });
@@ -166,13 +198,53 @@ function renderCards() {
                 : "Rejeitado";
         const qualityTag = item.match_quality === "exact"
             ? '<span class="tag tag-exact">✓ Match exato</span>'
-            : '<span class="tag tag-partial">~ Match parcial</span>';
+            : item.match_quality === "compound"
+                ? '<span class="tag tag-compound">◐ Match composto</span>'
+                : '<span class="tag tag-partial">~ Match parcial</span>';
+
+        // Feature 1: Page number
+        const pageNum = getPageNumber(item);
+
+        // Feature 2: Read badge
+        const readBadge = readItems.has(idx)
+            ? '<span class="badge badge-read">👁 Lido</span>'
+            : '';
+
+        // Feature 3: Copy ID & item identifier
+        const itemLabel = `${escapeHtml(item.process_id)} / Item #${item.item_id}`;
+
+        // Feature 5: Check results button state
+        const checkKey = buildCheckKey(item);
+        const checkState = checkCache[checkKey];
+        let checkBtnClass = "card-btn card-btn-check";
+        let checkBtnLabel = "🔍 Verificar";
+        let checkTooltip = "";
+        if (checkState) {
+            if (checkState.status === "loading") {
+                checkBtnClass += " check-loading";
+                checkBtnLabel = "⏳ Verificando…";
+            } else if (checkState.status === "ok") {
+                checkBtnClass += " check-ok";
+                checkBtnLabel = "✓ Dados disponíveis";
+                checkTooltip = '<span class="check-tooltip">Dados adicionais disponíveis</span>';
+            } else {
+                checkBtnClass += " check-empty";
+                checkBtnLabel = "— Sem resultados";
+                checkTooltip = '<span class="check-tooltip">Sem dados adicionais</span>';
+            }
+        }
 
         return `
       <div class="card ${item.status}" data-idx="${idx}">
         <div class="card-top">
-          <span class="card-id">${escapeHtml(item.process_id)} / Item #${item.item_id}</span>
-          <span class="badge ${badgeClass}">${badgeText}</span>
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0">
+            <span class="card-id">${itemLabel}</span>
+            <span class="page-label">📄 Pág. ${pageNum}</span>
+          </div>
+          <div style="display:flex;gap:4px;align-items:center;flex-shrink:0">
+            <span class="badge ${badgeClass}">${badgeText}</span>
+            ${readBadge}
+          </div>
         </div>
         <p class="card-desc" title="${escapeHtml(item.descricao)}">${escapeHtml(item.descricao)}</p>
         <div class="card-meta">
@@ -190,6 +262,8 @@ function renderCards() {
           <button class="card-btn card-btn-approve" onclick="setStatus(${idx},'approved')">✓ Aprovar</button>
           <button class="card-btn card-btn-reject"  onclick="setStatus(${idx},'rejected')">✗ Rejeitar</button>
           <button class="card-btn card-btn-open"     onclick="openProcess(${idx})">↗ Abrir</button>
+          <button class="${checkBtnClass}" onclick="checkResults(${idx})" style="position:relative">${checkBtnLabel}${checkTooltip}</button>
+          <button class="card-btn card-btn-copy" onclick="copyId(event, ${idx})">📋 Copiar ID</button>
         </div>
       </div>
     `;
@@ -203,8 +277,134 @@ function setStatus(idx, status) {
     renderCards();
 }
 
+// Feature 2 + Feature 3 (Deep Linking): open with text fragment and mark as read
 function openProcess(idx) {
-    window.open(allResults[idx].source_url, "_blank");
+    readItems.add(idx);
+    const item = allResults[idx];
+    const deepUrl = item.source_url + `#:~:text=${encodeURIComponent(item.item_id)}`;
+    window.open(deepUrl, "_blank");
+    renderCards();
+}
+
+// ── Word-boundary matching helper ───────────────────────────────────────
+function wordBoundaryMatch(term, text) {
+    const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const re = new RegExp('(?<![a-zA-Z0-9])' + escaped + '(?![a-zA-Z0-9])', 'i');
+    return re.test(text);
+}
+
+// Feature 3: Copy ID to clipboard (copies ONLY the item_id)
+function copyId(event, idx) {
+    event.stopPropagation();
+    const item = allResults[idx];
+    const text = `${item.item_id}`;
+
+    const btn = event.currentTarget;
+    const origText = btn.textContent;
+
+    navigator.clipboard.writeText(text).then(() => {
+        btn.textContent = '✓ Copiado!';
+        btn.classList.add('copy-success');
+        setTimeout(() => {
+            btn.textContent = origText;
+            btn.classList.remove('copy-success');
+        }, 1500);
+    }).catch(() => {
+        // Fallback for older browsers
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+        btn.textContent = '✓ Copiado!';
+        btn.classList.add('copy-success');
+        setTimeout(() => {
+            btn.textContent = origText;
+            btn.classList.remove('copy-success');
+        }, 1500);
+    });
+}
+
+// Feature 5: Check additional results
+function buildCheckKey(item) {
+    // Extract cnpj/ano/seq from source_url: https://pncp.gov.br/app/editais/{cnpj}/{ano}/{seq}
+    const parts = item.source_url.split("/");
+    const seq = parts.pop();
+    const ano = parts.pop();
+    const cnpj = parts.pop();
+    return `${cnpj}/${ano}/${seq}/${item.item_id}`;
+}
+
+function checkResults(idx) {
+    const item = allResults[idx];
+    const checkKey = buildCheckKey(item);
+
+    // Don't re-fetch if already checked or loading
+    if (checkCache[checkKey]) return;
+
+    // Extract parts from source_url
+    const parts = item.source_url.split("/");
+    const seq = parts.pop();
+    const ano = parts.pop();
+    const cnpj = parts.pop();
+
+    const apiUrl = `https://pncp.gov.br/api/pncp/v1/orgaos/${cnpj}/compras/${ano}/${seq}/itens/${item.item_id}/resultados`;
+
+    checkCache[checkKey] = { status: "loading" };
+    renderCards();
+
+    fetch(`/api/check-results?url=${encodeURIComponent(apiUrl)}`)
+        .then(r => r.json())
+        .then(data => {
+            checkCache[checkKey] = {
+                status: data.has_data ? "ok" : "empty",
+                data: data.data || null,
+            };
+            renderCards();
+        })
+        .catch(() => {
+            checkCache[checkKey] = { status: "empty" };
+            renderCards();
+        });
+}
+
+// Feature 4: Smart Tags
+function buildSmartTags(keywordsStr) {
+    activeSmartTags.clear();
+    const container = document.getElementById("smart-tags");
+    container.innerHTML = "";
+
+    // Extract qualifiers from [...] and also individual words as potential tags
+    const qualifiers = [];
+    const regex = /\[([^\]]+)\]/g;
+    let m;
+    while ((m = regex.exec(keywordsStr)) !== null) {
+        const inner = m[1];
+        inner.split(",").forEach(q => {
+            const trimmed = q.trim();
+            if (trimmed) qualifiers.push(trimmed);
+        });
+    }
+
+    if (qualifiers.length === 0) return;
+
+    qualifiers.forEach(tag => {
+        const btn = document.createElement("button");
+        btn.className = "smart-tag";
+        btn.textContent = tag;
+        btn.addEventListener("click", () => {
+            if (activeSmartTags.has(tag)) {
+                activeSmartTags.delete(tag);
+                btn.classList.remove("active");
+            } else {
+                activeSmartTags.add(tag);
+                btn.classList.add("active");
+            }
+            renderCards();
+        });
+        container.appendChild(btn);
+    });
 }
 
 function exportApproved() {
@@ -236,8 +436,12 @@ function exportApproved() {
 
 function newSearch() {
     allResults = [];
+    readItems.clear();
+    activeSmartTags.clear();
+    Object.keys(checkCache).forEach(k => delete checkCache[k]);
     hide("results-section");
     hide("progress-section");
+    document.getElementById("smart-tags").innerHTML = "";
     document.getElementById("search-form").reset();
     window.scrollTo({ top: 0, behavior: "smooth" });
 }

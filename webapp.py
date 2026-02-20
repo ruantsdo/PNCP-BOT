@@ -19,6 +19,7 @@ import threading
 import uuid
 from pathlib import Path
 
+import requests as http_requests
 from flask import Flask, jsonify, render_template, request, send_from_directory
 
 import config
@@ -120,6 +121,23 @@ def api_export():
     json_path = export_json(records, out)
     csv_path = export_csv(records, out)
     return jsonify({"json_path": json_path, "csv_path": csv_path, "count": len(records)})
+
+
+@app.route("/api/check-results")
+def api_check_results():
+    """Proxy to the PNCP results endpoint (avoids CORS)."""
+    url = request.args.get("url", "")
+    if not url or not url.startswith("https://pncp.gov.br/"):
+        return jsonify({"has_data": False, "error": "URL inválida"}), 400
+    try:
+        resp = http_requests.get(url, timeout=15)
+        if resp.status_code == 200:
+            data = resp.json()
+            has_data = isinstance(data, list) and len(data) > 0
+            return jsonify({"has_data": has_data, "data": data})
+        return jsonify({"has_data": False, "error": f"HTTP {resp.status_code}"})
+    except Exception as exc:
+        return jsonify({"has_data": False, "error": str(exc)})
 
 
 @app.route("/output/<path:filename>")

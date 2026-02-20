@@ -36,7 +36,7 @@
                     <select id="uf" name="uf">
                         <option value="">Todos</option>
                         {% for code, name in uf_codes.items() %}
-                        <option value="{{ code }}">{{ code }} — {{ name }}</option>
+                        <option value="{{ code }}" {% if code == 'BA' %}selected{% endif %}>{{ code }} — {{ name }}</option>
                         {% endfor %}
                     </select>
                 </div>
@@ -47,7 +47,7 @@
                         <option value="">Todos</option>
                         <option value="recebendo_proposta">Recebendo propostas</option>
                         <option value="propostas_encerradas">Propostas encerradas</option>
-                        <option value="encerradas">Encerrado</option>
+                        <option value="encerradas" selected>Encerrado</option>
                     </select>
                 </div>
 
@@ -103,11 +103,14 @@
                     <button class="pill" data-filter="approved">Aprovados</button>
                     <button class="pill" data-filter="rejected">Rejeitados</button>
                     <button class="pill" data-filter="exact">✓ Exatos</button>
+                    <button class="pill" data-filter="compound">◐ Compostos</button>
+                    <button class="pill" data-filter="partial">~ Parciais</button>
                 </div>
                 <input type="text" id="filter-text" placeholder="Filtrar descrição…" class="filter-input">
                 <button class="btn-action btn-export" onclick="exportApproved()">⬇ Exportar Aprovados</button>
                 <button class="btn-action btn-new" onclick="newSearch()">🔄 Nova Busca</button>
             </div>
+            <div class="smart-tags" id="smart-tags"></div>
         </div>
 
         <div class="items-grid" id="items-grid"></div>
