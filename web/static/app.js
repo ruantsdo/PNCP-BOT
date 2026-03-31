@@ -4,6 +4,26 @@ let allResults = [];
 let currentFilter = "all";
 let currentJobId = null;
 let pollTimer = null;
+let isSearchStopped = false; // Flag to stop client-side logic or server polling
+
+// Feature 0: Date constraints
+document.addEventListener("DOMContentLoaded", () => {
+    const today = new Date();
+    const oneYearAgo = new Date();
+    oneYearAgo.setFullYear(today.getFullYear() - 1);
+    const formatDateItem = (d) => d.toISOString().split('T')[0];
+    
+    const fromInput = document.getElementById("date_from");
+    const toInput = document.getElementById("date_to");
+    if(fromInput) {
+        fromInput.min = formatDateItem(oneYearAgo);
+        fromInput.max = formatDateItem(today);
+    }
+    if(toInput) {
+        toInput.min = formatDateItem(oneYearAgo);
+        toInput.max = formatDateItem(today);
+    }
+});
 
 // Feature 2: Track which items have been opened
 const readItems = new Set();
@@ -24,6 +44,7 @@ function getPageNumber(item) {
 // ── Start search ────────────────────────────────────────────────────────
 function startSearch(e) {
     e.preventDefault();
+    isSearchStopped = false;
     const form = document.getElementById("search-form");
     const btn = document.getElementById("btn-search");
     const btnText = document.getElementById("btn-search-text");
@@ -40,8 +61,37 @@ function startSearch(e) {
         rate_limit: 1.0,
     };
 
+    if (params.date_from) {
+        const dFrom = new Date(params.date_from);
+        const oneYearAgo = new Date();
+        oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
+        if (dFrom < oneYearAgo) {
+            alert("A data de início não pode ser anterior a 1 ano atrás da data atual.");
+            return;
+        }
+    }
+    
+    // Check for empty base keyword
+    const testParsed = parseKeywords(params.keywords);
+    if (!testParsed || testParsed.length === 0) {
+        btnText.textContent = "⚠ Palavra Chave necessária";
+        setTimeout(() => { btnText.textContent = "🔍 Buscar Itens"; }, 2000);
+        return;
+    }
+
     btn.disabled = true;
     btnText.textContent = "⏳ Buscando…";
+
+    if (document.getElementById("local_processing").checked) {
+        // Show skip button for local mode
+        const skipBtn = document.getElementById("btn-skip-process");
+        if (skipBtn) skipBtn.classList.remove("hidden");
+        startLocalSearch(params);
+        return;
+    }
+    // Hide skip button for server mode
+    const skipBtn = document.getElementById("btn-skip-process");
+    if (skipBtn) skipBtn.classList.add("hidden");
 
     // show progress, hide results
     show("progress-section");
@@ -70,8 +120,56 @@ function startSearch(e) {
         });
 }
 
-// ── Poll job status ─────────────────────────────────────────────────────
+// ── Local Search Flow ───────────────────────────────────────────────────
+async function startLocalSearch(params) {
+    show("progress-section");
+    hide("results-section");
+    document.getElementById("log-panel").innerHTML = "";
+    document.getElementById("progress-bar").style.width = "0%";
+    document.getElementById("progress-label").textContent = "Iniciando Processamento Local…";
+    
+    // Feature 4: Build smart tags from keywords
+    buildSmartTags(params.keywords);
+    
+    function logCB(msg) {
+        const logPanel = document.getElementById("log-panel");
+        let cls = "";
+        if (msg.includes("✓")) cls = "log-success";
+        else if (msg.includes("⚠") || msg.toLowerCase().includes("erro")) cls = "log-error";
+        const div = document.createElement("div");
+        div.className = cls;
+        div.textContent = msg;
+        logPanel.appendChild(div);
+        logPanel.scrollTop = logPanel.scrollHeight;
+    }
+    
+    function progCB(current, total, label) {
+        const pct = Math.round((current / total) * 100);
+        document.getElementById("progress-bar").style.width = pct + "%";
+        document.getElementById("progress-label").textContent = `${label} (${current}/${total})`;
+    }
+
+    try {
+        await runLocalExtraction(params, logCB, progCB);
+        if (isSearchStopped) {
+           finishSearchUI("⏹ Busca interrompida pelo usuário.", "error");
+        } else {
+           finishSearchUI(`✅ Concluído — ${allResults.length} itens encontrados.`, "done");
+        }
+    } catch (e) {
+        console.error(e);
+        logCB(`Erro fatal: ${e.message}`);
+        finishSearchUI("⚠ Erro durante a extração local.", "error");
+    }
+}
+
 function pollJob(jobId) {
+    if (isSearchStopped) {
+        clearInterval(pollTimer);
+        pollTimer = null;
+        finishSearchUI("⏹ Busca interrompida pelo usuário.", "error");
+        return;
+    }
     fetch(`/api/job/${jobId}`)
         .then(r => r.json())
         .then(job => {
@@ -111,7 +209,7 @@ function pollJob(jobId) {
                         "⚠ CAPTCHA detectado — resolva manualmente e tente novamente.";
                 } else if (job.status === "error") {
                     document.getElementById("progress-label").textContent =
-                        "⚠ Erro durante a extração.";
+                        "⚠ Erro durante a extração ou interrompido.";
                 } else {
                     document.getElementById("progress-label").textContent =
                         `✅ Concluído — ${job.total_results} itens encontrados.`;
@@ -128,6 +226,36 @@ function pollJob(jobId) {
         });
 }
 
+function stopSearch() {
+    isSearchStopped = true;
+}
+
+// ── Modal helpers ────────────────────────────────────────────────────────
+function handleModalOverlayClick(event) {
+    // Close only if click is directly on the overlay (not on modal-content child)
+    if (event.target === event.currentTarget) {
+        event.currentTarget.classList.add("hidden");
+    }
+}
+
+function openHelpModal() {
+    document.getElementById("help-modal").classList.remove("hidden");
+}
+
+function closeHelpModal() {
+    document.getElementById("help-modal").classList.add("hidden");
+}
+
+function finishSearchUI(msg, status="done") {
+    const btn = document.getElementById("btn-search");
+    const btnText = document.getElementById("btn-search-text");
+    btn.disabled = false;
+    btnText.textContent = "🔍 Buscar Itens";
+    document.getElementById("progress-bar").style.width = "100%";
+    document.getElementById("progress-label").textContent = msg;
+    if (allResults.length > 0) showResults();
+}
+
 // ── Results display ─────────────────────────────────────────────────────
 function showResults() {
     show("results-section");
@@ -136,20 +264,16 @@ function showResults() {
 }
 
 function updateStats() {
-    const pending = allResults.filter(r => r.status === "pending").length;
+    const pending  = allResults.filter(r => r.status === "pending").length;
+    const to_analyze = allResults.filter(r => r.status === "to_analyze").length;
     const approved = allResults.filter(r => r.status === "approved").length;
     const rejected = allResults.filter(r => r.status === "rejected").length;
-    const exact = allResults.filter(r => r.match_quality === "exact").length;
-    const compound = allResults.filter(r => r.match_quality === "compound").length;
-    const partial = allResults.filter(r => r.match_quality === "partial").length;
 
     document.getElementById("results-stats").innerHTML = `
     <span><span class="dot dot-pending"></span> ${pending} pendentes</span>
+    <span><span class="dot dot-to_analyze"></span> ${to_analyze} analisar</span>
     <span><span class="dot dot-approved"></span> ${approved} aprovados</span>
     <span><span class="dot dot-rejected"></span> ${rejected} rejeitados</span>
-    <span><span class="dot dot-exact"></span> ${exact} exatos</span>
-    <span><span class="dot dot-compound"></span> ${compound} compostos</span>
-    <span><span class="dot dot-partial"></span> ${partial} parciais</span>
     <span>Total: ${allResults.length}</span>
   `;
 }
@@ -158,14 +282,11 @@ function renderCards() {
     const grid = document.getElementById("items-grid");
     const search = (document.getElementById("filter-text").value || "").toLowerCase();
 
-    const qualityFilters = ["exact", "compound", "partial"];
-
     const filtered = allResults.filter(item => {
-        if (qualityFilters.includes(currentFilter) && item.match_quality !== currentFilter) return false;
-        if (currentFilter !== "all" && !qualityFilters.includes(currentFilter) && item.status !== currentFilter) return false;
+        if (currentFilter !== "all" && item.status !== currentFilter) return false;
         if (search && !item.descricao.toLowerCase().includes(search)) return false;
 
-        // Feature 4: Smart tag filter — item must contain ALL active tags (word-boundary)
+        // Smart tag filter — item must contain ALL active tags (word-boundary)
         if (activeSmartTags.size > 0) {
             for (const tag of activeSmartTags) {
                 if (!wordBoundaryMatch(tag, item.descricao)) return false;
@@ -175,14 +296,23 @@ function renderCards() {
         return true;
     });
 
-    // Sort: exact first, then compound, then partial; within same quality sort by status
+    // Sort: "pending" items first (unreviewed), then treated items, rejected always last.
     filtered.sort((a, b) => {
+        // Pending = not yet reviewed → top of queue
+        const aPending = a.status === 'pending' ? 0 : 1;
+        const bPending = b.status === 'pending' ? 0 : 1;
+        if (aPending !== bPending) return aPending - bPending;
+
+        // Among non-pending: rejected sink to bottom
+        const aRejected = a.status === 'rejected' ? 1 : 0;
+        const bRejected = b.status === 'rejected' ? 1 : 0;
+        if (aRejected !== bRejected) return aRejected - bRejected;
+
+        // Within same tier: exact matches first
         const qualityOrder = { exact: 0, compound: 1, partial: 2 };
         const qa = qualityOrder[a.match_quality] ?? 2;
         const qb = qualityOrder[b.match_quality] ?? 2;
-        if (qa !== qb) return qa - qb;
-        const statusOrder = { pending: 0, approved: 1, rejected: 2 };
-        return (statusOrder[a.status] || 0) - (statusOrder[b.status] || 0);
+        return qa - qb;
     });
 
     if (filtered.length === 0) {
@@ -195,14 +325,9 @@ function renderCards() {
         const badgeClass = `badge-${item.status}`;
         const badgeText = item.status === "pending" ? "Pendente"
             : item.status === "approved" ? "Aprovado"
+                : item.status === "to_analyze" ? "Analisar"
                 : "Rejeitado";
-        const qualityTag = item.match_quality === "exact"
-            ? '<span class="tag tag-exact">✓ Match exato</span>'
-            : item.match_quality === "compound"
-                ? '<span class="tag tag-compound">◐ Match composto</span>'
-                : '<span class="tag tag-partial">~ Match parcial</span>';
-
-        // Feature 1: Page number
+        // Page number for navigation reference
         const pageNum = getPageNumber(item);
 
         // Feature 2: Read badge
@@ -254,12 +379,12 @@ function renderCards() {
           <span>📅 ${formatDate(item.data_publicacao)}</span>
         </div>
         <div class="card-tags">
-          ${qualityTag}
           <span class="tag tag-keyword">🔑 ${escapeHtml(item.matched_keywords)}</span>
         </div>
         <p class="card-org">${escapeHtml(item.contratante)}</p>
         <div class="card-actions">
           <button class="card-btn card-btn-approve" onclick="setStatus(${idx},'approved')">✓ Aprovar</button>
+          <button class="card-btn card-btn-analyze" onclick="setStatus(${idx},'to_analyze')">🔎 Analisar</button>
           <button class="card-btn card-btn-reject"  onclick="setStatus(${idx},'rejected')">✗ Rejeitar</button>
           <button class="card-btn card-btn-open"     onclick="openProcess(${idx})">↗ Abrir</button>
           <button class="${checkBtnClass}" onclick="checkResults(${idx})" style="position:relative">${checkBtnLabel}${checkTooltip}</button>
@@ -361,35 +486,64 @@ function checkResults(idx) {
                 status: data.has_data ? "ok" : "empty",
                 data: data.data || null,
             };
+            
+            // Auto-Rejeição: se não houver dados
+            if (!data.has_data) {
+                setStatus(idx, 'rejected');
+                return;
+            }
+            
             renderCards();
         })
         .catch(() => {
-            checkCache[checkKey] = { status: "empty" };
+            // On fetch error: log only, do NOT auto-reject
+            const logPanel = document.getElementById('log-panel');
+            if (logPanel) {
+                const div = document.createElement('div');
+                div.className = 'log-error';
+                div.textContent = `Erro no processamento de ${item.process_id}`;
+                logPanel.appendChild(div);
+                logPanel.scrollTop = logPanel.scrollHeight;
+            }
+            checkCache[checkKey] = { status: 'empty' };
             renderCards();
         });
 }
 
-// Feature 4: Smart Tags
+// Feature 4: Smart Tags — decompose new syntax into individual filter chips
 function buildSmartTags(keywordsStr) {
     activeSmartTags.clear();
     const container = document.getElementById("smart-tags");
     container.innerHTML = "";
 
-    // Extract qualifiers from [...] and also individual words as potential tags
-    const qualifiers = [];
-    const regex = /\[([^\]]+)\]/g;
+    // Extract all filter tokens from [...] blocks:
+    // bare terms (AND) and {} alternatives (OR) are each separate chips
+    const chips = [];
+    const bracketRegex = /\[([^\]]+)\]/g;
     let m;
-    while ((m = regex.exec(keywordsStr)) !== null) {
+    while ((m = bracketRegex.exec(keywordsStr)) !== null) {
         const inner = m[1];
-        inner.split(",").forEach(q => {
-            const trimmed = q.trim();
-            if (trimmed) qualifiers.push(trimmed);
-        });
+        // find {} groups and bare tokens, separated by |
+        const innerRegex = /\{([^}]+)\}|([^|{}]+)/g;
+        let im;
+        while ((im = innerRegex.exec(inner)) !== null) {
+            if (im[1]) {
+                // OR group — each alternative becomes its own chip
+                im[1].split('|').forEach(alt => {
+                    const t = alt.trim();
+                    if (t) chips.push(t);
+                });
+            } else if (im[2]) {
+                // bare AND token
+                const t = im[2].trim();
+                if (t) chips.push(t);
+            }
+        }
     }
 
-    if (qualifiers.length === 0) return;
+    if (chips.length === 0) return;
 
-    qualifiers.forEach(tag => {
+    chips.forEach(tag => {
         const btn = document.createElement("button");
         btn.className = "smart-tag";
         btn.textContent = tag;
@@ -442,7 +596,8 @@ function newSearch() {
     hide("results-section");
     hide("progress-section");
     document.getElementById("smart-tags").innerHTML = "";
-    document.getElementById("search-form").reset();
+    document.getElementById("search-form").reset(); // Libera filtros visuais
+    document.getElementById("filter-text").value = ""; // Limpa searchbox do grid
     window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
@@ -478,3 +633,82 @@ document.querySelectorAll(".pill[data-filter]").forEach(btn => {
 });
 
 document.getElementById("filter-text").addEventListener("input", () => renderCards());
+
+// ── AI Prompt ───────────────────────────────────────────────────────────
+function openAIPromptModal() {
+    document.getElementById("ai-modal").classList.remove("hidden");
+}
+
+function closeAIPromptModal() {
+    document.getElementById("ai-modal").classList.add("hidden");
+}
+
+function generateAIPrompt() {
+    const mainDesc = document.getElementById("ai-main-desc").value.trim();
+    if (!mainDesc) {
+        alert("Por favor, insira a descrição principal.");
+        return;
+    }
+    
+    // Scope: only 'to_analyze' and 'approved' — pending and rejected excluded
+    const validStatuses = ["to_analyze", "approved"];
+    const itemsForAI = allResults
+        .filter(r => validStatuses.includes(r.status))
+        .map(r => ({
+            id: r.item_id ? String(r.item_id) : r.process_id,
+            descricao: r.descricao
+        }));
+        
+    if (itemsForAI.length === 0) {
+        // show inline feedback on the prompt button instead of alert
+        const actionBtn = document.getElementById("btn-ai-prompt");
+        if (actionBtn) {
+            const orig = actionBtn.innerHTML;
+            actionBtn.innerHTML = "⚠ Nenhum item em 'Analisar' ou 'Aprovado'";
+            setTimeout(() => { actionBtn.innerHTML = orig; }, 2500);
+        }
+        return;
+    }
+
+    const payload = {
+        pergunta: "Alguma das descrições abaixo atende aos critérios da Descrição Principal?",
+        descricao_principal: mainDesc,
+        itens_para_analise: itemsForAI,
+        instrucao: "Responda indicando o ID do processo e o motivo da compatibilidade."
+    };
+    
+    const jsonStr = JSON.stringify(payload, null, 2);
+    
+    
+    const copyCallback = () => {
+        // btn-ai-prompt is the action button *outside* the modal (in the results bar)
+        // the modal's own button has no id, so we target both and use a toast fallback
+        const actionBtn = document.getElementById("btn-ai-prompt");
+        if (actionBtn) {
+            const orig = actionBtn.innerHTML;
+            actionBtn.innerHTML = "✓ Prompt Copiado!";
+            actionBtn.style.backgroundColor = "var(--approved-color)";
+            actionBtn.style.color = "#fff";
+            setTimeout(() => {
+                actionBtn.innerHTML = orig;
+                actionBtn.style.backgroundColor = "";
+                actionBtn.style.color = "";
+            }, 2200);
+        }
+    };
+    
+    navigator.clipboard.writeText(jsonStr).then(() => {
+        copyCallback();
+        closeAIPromptModal();
+    }).catch(err => {
+        // Fallback
+        const ta = document.createElement('textarea');
+        ta.value = jsonStr;
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+        copyCallback();
+        closeAIPromptModal();
+    });
+}

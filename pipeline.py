@@ -162,7 +162,6 @@ def run_extraction(
 
         if on_progress:
             on_progress(i, len(processes), f"Processando {pid}…")
-        emit(f"[{i}/{len(processes)}] {pid}")
 
         try:
             cnpj, ano, seq = fetcher.parse_item_url(item_url)
@@ -178,6 +177,8 @@ def run_extraction(
         except Exception as exc:
             emit(f"  ⚠ Erro ao buscar itens: {exc}")
             continue
+
+        emit(f"[{i}/{len(processes)}] Verificando {len(items)} itens do Processo {pid}")
 
         for item_index, item in enumerate(items):
             desc = item.get("descricao", "")

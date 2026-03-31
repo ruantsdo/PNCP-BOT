@@ -140,6 +140,21 @@ def api_check_results():
         return jsonify({"has_data": False, "error": str(exc)})
 
 
+@app.route("/api/proxy")
+def api_proxy():
+    """Proxy for client-side local processing (avoids CORS)."""
+    url = request.args.get("url", "")
+    if not url or not url.startswith("https://pncp.gov.br/"):
+        return jsonify({"error": "URL inválida"}), 400
+    try:
+        # Pass forward all other query params except 'url'
+        params = {k: v for k, v in request.args.items() if k != "url"}
+        resp = http_requests.get(url, params=params, timeout=15)
+        return (resp.content, resp.status_code, {"Content-Type": resp.headers.get("Content-Type", "application/json")})
+    except Exception as exc:
+        return jsonify({"has_data": False, "error": str(exc)}), 500
+
+
 @app.route("/output/<path:filename>")
 def serve_output(filename):
     return send_from_directory(str(OUTPUT_DIR), filename)

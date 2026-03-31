@@ -48,7 +48,8 @@ header {
     max-width: 1200px;
     margin: 0 auto;
     display: flex;
-    align-items: baseline;
+    align-items: center;
+    justify-content: space-between;
     gap: 16px;
 }
 
@@ -57,6 +58,7 @@ h1 {
     font-weight: 700;
     background: linear-gradient(135deg, #818cf8, #a78bfa, #c084fc);
     -webkit-background-clip: text;
+    background-clip: text;
     -webkit-text-fill-color: transparent;
 }
 
@@ -270,6 +272,10 @@ h1 {
     background: var(--yellow);
 }
 
+.dot-to_analyze {
+    background: #c084fc;
+}
+
 .dot-approved {
     background: var(--green);
 }
@@ -408,6 +414,10 @@ h1 {
     opacity: 0.55;
 }
 
+.card.to_analyze {
+    border-left: 3px solid #c084fc;
+}
+
 .card-top {
     display: flex;
     justify-content: space-between;
@@ -437,6 +447,11 @@ h1 {
     color: var(--yellow);
 }
 
+.badge-to_analyze {
+    background: #1e1b4b;
+    color: #c084fc;
+}
+
 .badge-approved {
     background: var(--green-bg);
     color: var(--green);
@@ -454,6 +469,7 @@ h1 {
     overflow: hidden;
     display: -webkit-box;
     -webkit-line-clamp: 3;
+    line-clamp: 3;
     -webkit-box-orient: vertical;
 }
 
@@ -554,6 +570,15 @@ h1 {
     border-color: var(--accent);
 }
 
+.card-btn-analyze {
+    color: #c084fc;
+}
+
+.card-btn-analyze:hover {
+    background: #c084fc15;
+    border-color: #c084fc;
+}
+
 /* ── Badge Read ──────────────────────────────────────────────────────── */
 .badge-read {
     flex-shrink: 0;
@@ -605,6 +630,16 @@ h1 {
 .smart-tags:empty {
     display: none;
     margin-top: 0;
+}
+
+/* ── Results Action Row (below smart-tags) ───────────────────────────── */
+.results-action-row {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px solid var(--border);
 }
 
 .smart-tag {
@@ -680,6 +715,55 @@ h1 {
     display: block;
 }
 
+/* ── Modal ───────────────────────────────────────────────────────────── */
+.modal {
+    position: fixed;
+    z-index: 1000;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    overflow: auto;
+    background-color: rgba(0,0,0,0.7);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 1;
+    transition: opacity var(--transition);
+}
+
+.modal.hidden {
+    display: none;
+}
+
+.modal-content {
+    background-color: var(--surface);
+    padding: 24px;
+    border: 1px solid var(--border);
+    width: 90%;
+    max-width: 500px;
+    border-radius: var(--radius);
+    position: relative;
+    max-height: 85vh;
+    overflow-y: auto;
+}
+
+.close-modal {
+    color: var(--text-dim);
+    position: absolute;
+    top: 16px;
+    right: 20px;
+    font-size: 28px;
+    font-weight: bold;
+    cursor: pointer;
+    transition: color var(--transition);
+    line-height: 1;
+}
+
+.close-modal:hover {
+    color: var(--text);
+}
+
 /* ── Utilities ───────────────────────────────────────────────────────── */
 .hidden {
     display: none !important;
@@ -720,4 +804,62 @@ h1 {
         flex-direction: column;
         gap: 4px;
     }
+}
+
+/* ── Help Modal Content ───────────────────────────────────────────────── */
+.help-content h3 {
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--text);
+    margin-bottom: 6px;
+}
+
+.help-content p {
+    font-size: 0.83rem;
+    color: var(--text-dim);
+    margin-bottom: 8px;
+}
+
+.help-code {
+    display: block;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 10px 14px;
+    font-family: 'Courier New', monospace;
+    font-size: 0.8rem;
+    color: #a78bfa;
+    margin-bottom: 10px;
+    word-break: break-all;
+}
+
+.help-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.8rem;
+    margin-bottom: 6px;
+}
+
+.help-table th {
+    text-align: left;
+    padding: 6px 10px;
+    border-bottom: 1px solid var(--border);
+    color: var(--text-dim);
+    font-weight: 600;
+}
+
+.help-table td {
+    padding: 6px 10px;
+    border-bottom: 1px solid var(--border);
+    color: var(--text);
+    vertical-align: top;
+}
+
+.help-table td code {
+    background: var(--surface2);
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-family: monospace;
+    font-size: 0.78rem;
+    color: #818cf8;
 }

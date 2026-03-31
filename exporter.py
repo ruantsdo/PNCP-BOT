@@ -75,20 +75,11 @@ def build_record(
 
 
 def _determine_quality(matched_keywords: list) -> str:
-    """Determine match quality from list of MatchResult objects."""
-    for m in matched_keywords:
-        quals = getattr(m, 'keyword', None)
-        if quals is None:
-            continue
-        qualifiers = getattr(quals, 'qualifiers', [])
-        if not qualifiers:
-            continue  # no qualifiers → check next match
-        met = getattr(m, 'qualifiers_met', [])
-        unmet = getattr(m, 'qualifiers_unmet', [])
-        if len(met) == len(qualifiers):
-            return "exact"    # all qualifiers met
-        if len(met) > 0:
-            return "compound" # some but not all
+    """Determine match quality from list of MatchResult objects.
+    In strict mode every matched item satisfies all groups, so quality is always 'exact'.
+    """
+    if matched_keywords:
+        return "exact"
     return "partial"
 
 

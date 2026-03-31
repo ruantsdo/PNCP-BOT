@@ -14,8 +14,11 @@
     <!-- ── HEADER ─────────────────────────────────────────────── -->
     <header>
         <div class="header-inner">
-            <h1>🏛️ PNCP Bot</h1>
-            <span class="subtitle">Busca inteligente no Portal Nacional de Contratações Públicas</span>
+            <div>
+                <h1>🏛️ PNCP Bot</h1>
+                <span class="subtitle">Busca inteligente no Portal Nacional de Contratações Públicas</span>
+            </div>
+            <button class="btn-action" onclick="openHelpModal()" style="font-size: 0.85rem; border-color: #60a5fa; color: #60a5fa;">❓ Ajuda</button>
         </div>
     </header>
 
@@ -25,9 +28,8 @@
             <div class="form-main">
                 <label for="keywords">Palavras-chave</label>
                 <input type="text" id="keywords" name="keywords"
-                    placeholder='Ex: cabo [vermelho], tomada [20a], disjuntor' required autocomplete="off">
-                <p class="hint">Separe termos por vírgula. Qualificadores entre [colchetes] são opcionais e destacam
-                    resultados mais relevantes.</p>
+                    placeholder='Ex: cabo de cobre [flexivel | {vermelho | azul} | {2,5mm | 1,5mm}]' required autocomplete="off">
+                <p class="hint">Separe as buscas por vírgula. Use <b>[ ]</b> delimitado por <b>|</b> para filtros obrigatórios (AND) e <b>{ }</b> para alternativas (OR).</p>
             </div>
 
             <div class="form-grid">
@@ -68,12 +70,17 @@
 
                 <div class="form-group">
                     <label for="max_processes">Máx. processos</label>
-                    <input type="number" id="max_processes" name="max_processes" value="30" min="1" max="500">
+                    <input type="number" id="max_processes" name="max_processes" value="50" min="1" max="500">
                 </div>
 
                 <div class="form-group">
                     <label for="fuzzy_threshold">Fuzzy (%)</label>
                     <input type="number" id="fuzzy_threshold" name="fuzzy_threshold" value="80" min="0" max="100">
+                </div>
+
+                <div class="form-group" style="grid-column: 1 / -1; display: flex; align-items: center; gap: 8px; margin-top: 10px;">
+                    <input type="checkbox" id="local_processing" name="local_processing" style="width: 16px; height: 16px;">
+                    <label for="local_processing" style="margin: 0; font-size: 0.85rem; cursor: pointer; color: var(--text);">Processamento Local <span style="color: var(--text-dim);">(Maior velocidade, precisão variável)</span></label>
                 </div>
             </div>
 
@@ -85,10 +92,17 @@
 
     <!-- ── PROGRESS ───────────────────────────────────────────── -->
     <section class="progress-section hidden" id="progress-section">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+            <p class="progress-label" id="progress-label" style="margin: 0;">Iniciando…</p>
+            <button id="btn-stop-search" class="btn-action" style="color: #ff4d4d; border-color: #ff4d4d; padding: 4px 12px; font-size: 0.75rem" onclick="stopSearch()">⏹ Parar Busca</button>
+        </div>
         <div class="progress-bar-container">
             <div class="progress-bar" id="progress-bar"></div>
         </div>
-        <p class="progress-label" id="progress-label">Iniciando…</p>
+        <div style="display: flex; gap: 8px; justify-content: flex-end; margin-bottom: 8px;" id="progress-actions">
+            <!-- Skip button: only visible during local processing -->
+            <button id="btn-skip-process" class="btn-action hidden" style="font-size: 0.75rem; padding: 4px 10px;" onclick="window.skipProcess = true" title="Pula a varredura do processo atual">⏭ Pular Processo</button>
+        </div>
         <div class="log-panel" id="log-panel"></div>
     </section>
 
@@ -100,6 +114,7 @@
                 <div class="filter-pills">
                     <button class="pill active" data-filter="all">Todos</button>
                     <button class="pill" data-filter="pending">Pendentes</button>
+                    <button class="pill" data-filter="to_analyze">Para Analisar</button>
                     <button class="pill" data-filter="approved">Aprovados</button>
                     <button class="pill" data-filter="rejected">Rejeitados</button>
                     <button class="pill" data-filter="exact">✓ Exatos</button>
@@ -107,15 +122,106 @@
                     <button class="pill" data-filter="partial">~ Parciais</button>
                 </div>
                 <input type="text" id="filter-text" placeholder="Filtrar descrição…" class="filter-input">
-                <button class="btn-action btn-export" onclick="exportApproved()">⬇ Exportar Aprovados</button>
-                <button class="btn-action btn-new" onclick="newSearch()">🔄 Nova Busca</button>
             </div>
+            <!-- Smart filter chips from keyword syntax -->
             <div class="smart-tags" id="smart-tags"></div>
+            <!-- Action buttons row -->
+            <div class="results-action-row">
+                <button id="btn-ai-prompt" class="btn-action" style="border-color: #c084fc; color: #c084fc;" onclick="openAIPromptModal()">🤖 Gerar Prompt</button>
+                <button class="btn-action btn-new" onclick="newSearch()">🔄 Nova Busca</button>
+                <button class="btn-action btn-export" onclick="exportApproved()">⬇ Exportar Aprovados</button>
+            </div>
         </div>
 
         <div class="items-grid" id="items-grid"></div>
     </section>
 
+    <!-- ── MODAL IA ───────────────────────────────────────────── -->
+    <div id="ai-modal" class="modal hidden" onclick="handleModalOverlayClick(event)">
+        <div class="modal-content" onclick="event.stopPropagation()">
+            <span class="close-modal" onclick="closeAIPromptModal()">&times;</span>
+            <h2 style="margin-bottom: 8px;">Gerar Prompt de Comparação</h2>
+            <p style="font-size: 0.85rem; color: var(--text-dim);">Insira a descrição principal para compararmos com os itens <strong>Para Analisar</strong> e <strong>Aprovados</strong>.</p>
+            <textarea id="ai-main-desc" rows="3" placeholder="Ex: cabo de rede cat6 vermelho..." style="width: 100%; margin: 15px 0; padding: 10px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg); color: var(--text); font-family: var(--font); resize: vertical;"></textarea>
+            <button class="btn-search" style="margin-top: 0" onclick="generateAIPrompt()">📋 Gerar e Copiar JSON</button>
+        </div>
+    </div>
+
+    <!-- ── MODAL AJUDA ──────────────────────────────────────────── -->
+    <div id="help-modal" class="modal hidden" onclick="handleModalOverlayClick(event)">
+        <div class="modal-content" style="max-width: 640px;" onclick="event.stopPropagation()">
+            <span class="close-modal" onclick="closeHelpModal()">&times;</span>
+            <h2 style="margin-bottom: 12px;">📖 Guia de Busca</h2>
+            <div class="help-content">
+                <h3>Sintaxe Geral</h3>
+                <code class="help-code">Termo Base [Filtro Simples | {Opção A | Opção B} | {Opção 1 | Opção 2}]</code>
+
+                <h3 style="margin-top: 14px;">Hierarquia de Obrigatoriedade</h3>
+                <table class="help-table">
+                    <tr><th>Componente</th><th>Regra</th><th>Exemplo</th></tr>
+                    <tr>
+                        <td><strong>Termo Base</strong></td>
+                        <td>⚠️ <strong>Obrigatório.</strong> Todas as palavras devem existir na descrição.</td>
+                        <td><code>cabo de cobre</code></td>
+                    </tr>
+                    <tr>
+                        <td><strong>[Filtro Simples]</strong></td>
+                        <td>⚠️ <strong>Obrigatório.</strong> O termo deve existir no item.</td>
+                        <td><code>[flexivel]</code></td>
+                    </tr>
+                    <tr>
+                        <td><strong>[{A | B}]</strong></td>
+                        <td>⚠️ <strong>Obrigatório (OR interno).</strong> Pelo menos UM dos termos dentro das chaves deve existir.</td>
+                        <td><code>{vermelho | azul}</code></td>
+                    </tr>
+                </table>
+
+                <h3 style="margin-top: 14px;">Exemplo Prático</h3>
+                <code class="help-code">cabo de cobre [flexivel | {vermelho | azul} | {2,5mm | 1,5mm}]</code>
+                <table class="help-table" style="margin-top: 8px;">
+                    <tr><th>Descrição do Item</th><th>Resultado</th><th>Motivo</th></tr>
+                    <tr>
+                        <td>Cabo de Cobre Flexível Azul 2,5mm</td>
+                        <td style="color: #22c55e; white-space: nowrap;">✅ Aprovado</td>
+                        <td>Atende a todos os critérios e grupos.</td>
+                    </tr>
+                    <tr>
+                        <td>Cabo de Cobre Flexível Verde 2,5mm</td>
+                        <td style="color: #ef4444; white-space: nowrap;">❌ Rejeitado</td>
+                        <td>Possui "Flexível" e "2,5mm", mas não possui "Vermelho" nem "Azul".</td>
+                    </tr>
+                    <tr>
+                        <td>Cabo de Cobre Azul 1,5mm (sem "Flexível")</td>
+                        <td style="color: #ef4444; white-space: nowrap;">❌ Rejeitado</td>
+                        <td>Falta o termo obrigatório "Flexível".</td>
+                    </tr>
+                    <tr>
+                        <td>Cano de Cobre Azul 1,5mm</td>
+                        <td style="color: #ef4444; white-space: nowrap;">❌ Rejeitado</td>
+                        <td>Não atende ao termo base "cabo de cobre".</td>
+                    </tr>
+                </table>
+
+                <h3 style="margin-top: 14px;">💡 Dica: Buscas Mais Amplas</h3>
+                <p>Se quiser resultados menos restritivos, remova os grupos de chaves <code>{ }</code> ou os filtros dentro de <code>[ ]</code>. Quanto mais filtros você define, mais cirúrgica é a busca.</p>
+
+                <h3 style="margin-top: 14px;">Ordenação dos Resultados</h3>
+                <p>Itens <strong>Pendentes</strong> (não revisados) aparecem sempre no topo. Itens já tratados (Aprovados, Para Analisar) vão ao final. Rejeitados ficam sempre por último.</p>
+
+                <h3 style="margin-top: 14px;">Abas de Status</h3>
+                <table class="help-table">
+                    <tr><th>Aba</th><th>Significado</th></tr>
+                    <tr><td>🟡 Pendente</td><td>Item encontrado, aguardando sua decisão.</td></tr>
+                    <tr><td>🔵 Para Analisar</td><td>Marcado para análise posterior.</td></tr>
+                    <tr><td>🟢 Aprovado</td><td>Confirmado como relevante.</td></tr>
+                    <tr><td>🔴 Rejeitado</td><td>Descartado. Exibido sempre ao final.</td></tr>
+                </table>
+            </div>
+            <button class="btn-search" style="margin-top: 16px; width: 100%;" onclick="closeHelpModal()">Fechar</button>
+        </div>
+    </div>
+
+    <script src="/static/client-pipeline.js"></script>
     <script src="/static/app.js"></script>
 </body>
 
