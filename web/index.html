@@ -18,7 +18,10 @@
                 <h1>🏛️ PNCP Bot</h1>
                 <span class="subtitle">Busca inteligente no Portal Nacional de Contratações Públicas</span>
             </div>
-            <button class="btn-action" onclick="openHelpModal()" style="font-size: 0.85rem; border-color: #60a5fa; color: #60a5fa;">❓ Ajuda</button>
+            <div style="display:flex;gap:8px;">
+                <button class="btn-action" onclick="openAutoModal()" style="font-size: 0.85rem; border-color: #a78bfa; color: #a78bfa;">⚙ Configurar Automação</button>
+                <button class="btn-action" onclick="openHelpModal()" style="font-size: 0.85rem; border-color: #60a5fa; color: #60a5fa;">❓ Ajuda</button>
+            </div>
         </div>
     </header>
 
@@ -99,6 +102,8 @@
         <div class="progress-bar-container">
             <div class="progress-bar" id="progress-bar"></div>
         </div>
+        <!-- Status indicators: item counter + elapsed timer -->
+        <div id="status-indicators" class="status-indicators"></div>
         <div style="display: flex; gap: 8px; justify-content: flex-end; margin-bottom: 8px;" id="progress-actions">
             <!-- Skip button: only visible during local processing -->
             <button id="btn-skip-process" class="btn-action hidden" style="font-size: 0.75rem; padding: 4px 10px;" onclick="window.skipProcess = true" title="Pula a varredura do processo atual">⏭ Pular Processo</button>
@@ -117,9 +122,6 @@
                     <button class="pill" data-filter="to_analyze">Para Analisar</button>
                     <button class="pill" data-filter="approved">Aprovados</button>
                     <button class="pill" data-filter="rejected">Rejeitados</button>
-                    <button class="pill" data-filter="exact">✓ Exatos</button>
-                    <button class="pill" data-filter="compound">◐ Compostos</button>
-                    <button class="pill" data-filter="partial">~ Parciais</button>
                 </div>
                 <input type="text" id="filter-text" placeholder="Filtrar descrição…" class="filter-input">
             </div>
@@ -135,6 +137,16 @@
 
         <div class="items-grid" id="items-grid"></div>
     </section>
+
+    <!-- ── MODAL CONCLUSÃO ────────────────────────────────────── -->
+    <div id="completion-modal" class="modal hidden" onclick="handleModalOverlayClick(event)">
+        <div class="modal-content modal-completion" onclick="event.stopPropagation()">
+            <div class="completion-icon">✅</div>
+            <h2 style="margin-bottom: 10px;">Processamento Concluído</h2>
+            <p id="completion-message" style="font-size: 1rem; color: var(--text-dim); margin-bottom: 20px;"></p>
+            <button class="btn-search" style="margin-top: 0;" onclick="closeCompletionModal()">OK</button>
+        </div>
+    </div>
 
     <!-- ── MODAL IA ───────────────────────────────────────────── -->
     <div id="ai-modal" class="modal hidden" onclick="handleModalOverlayClick(event)">
@@ -218,6 +230,52 @@
                 </table>
             </div>
             <button class="btn-search" style="margin-top: 16px; width: 100%;" onclick="closeHelpModal()">Fechar</button>
+        </div>
+    </div>
+
+    <!-- ── MODAL AUTOMAÇÃO ─────────────────────────────────────── -->
+    <div id="auto-modal" class="modal hidden" onclick="handleModalOverlayClick(event)">
+        <div class="modal-content modal-auto" onclick="event.stopPropagation()">
+            <span class="close-modal" onclick="closeAutoModal()">&times;</span>
+            <h2 style="margin-bottom: 4px;">⚙ Configurar Automação</h2>
+            <p style="font-size: 0.8rem; color: var(--text-dim); margin-bottom: 16px;">Integração com Tampermonkey para navegação automática no PNCP.</p>
+
+            <div class="auto-steps">
+                <div class="auto-step">
+                    <span class="step-num">1</span>
+                    <div>
+                        <strong>Instalação</strong>
+                        <p>Instale a extensão <strong>Tampermonkey</strong> na loja oficial do seu navegador (Chrome, Edge, Firefox).</p>
+                    </div>
+                </div>
+                <div class="auto-step">
+                    <span class="step-num">2</span>
+                    <div>
+                        <strong>Permissões</strong>
+                        <p>Nas configurações da extensão, ative <em>"Permitir acesso a URLs de arquivos"</em> e <em>"Permitir Scripts de Usuário"</em>.</p>
+                    </div>
+                </div>
+                <div class="auto-step">
+                    <span class="step-num">3</span>
+                    <div>
+                        <strong>Novo Script</strong>
+                        <p>Clique no ícone do Tampermonkey → <em>"Adicionar novo script"</em>. Apague o conteúdo padrão e cole o código abaixo.</p>
+                    </div>
+                </div>
+                <div class="auto-step">
+                    <span class="step-num">4</span>
+                    <div>
+                        <strong>Uso</strong>
+                        <p>Ao clicar em <strong>"↗ Abrir"</strong> no BOT, a página do PNCP carregará, aguardará 3 segundos e navegará automaticamente até o item específico.</p>
+                    </div>
+                </div>
+            </div>
+
+            <div style="display:flex; justify-content:center; margin-top: 4px;">
+                <button id="btn-copy-script" class="btn-action" style="font-size: 0.85rem; padding: 10px 28px; border-color: #34d399; color: #34d399;" onclick="copyTampermonkeyScript()">📋 Copiar Script</button>
+            </div>
+
+            <button class="btn-search" style="margin-top: 16px; width: 100%;" onclick="closeAutoModal()">Fechar</button>
         </div>
     </div>
 

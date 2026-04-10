@@ -4,7 +4,44 @@ let allResults = [];
 let currentFilter = "all";
 let currentJobId = null;
 let pollTimer = null;
-let isSearchStopped = false; // Flag to stop client-side logic or server polling
+let isSearchStopped = false;
+
+// ── Timer / Counter state ────────────────────────────────────────────────
+let _timerInterval = null;
+let _timerStart = null;
+let _itemsVerified = 0;
+
+function _startTimer() {
+    _timerStart = Date.now();
+    _itemsVerified = 0;
+    _updateStatusPanel();
+    _timerInterval = setInterval(_updateStatusPanel, 1000);
+}
+
+function _stopTimer() {
+    if (_timerInterval) {
+        clearInterval(_timerInterval);
+        _timerInterval = null;
+    }
+}
+
+function _elapsedStr() {
+    if (!_timerStart) return "00:00";
+    const secs = Math.floor((Date.now() - _timerStart) / 1000);
+    const mm = String(Math.floor(secs / 60)).padStart(2, "0");
+    const ss = String(secs % 60).padStart(2, "0");
+    return `${mm}:${ss}`;
+}
+
+function _updateStatusPanel() {
+    const el = document.getElementById("status-indicators");
+    if (el) {
+        el.innerHTML = `
+          <span class="status-indicator">📦 Itens verificados: <strong>${_itemsVerified}</strong></span>
+          <span class="status-indicator">⏱ Tempo decorrido: <strong>${_elapsedStr()}</strong></span>
+        `;
+    }
+}
 
 // Feature 0: Date constraints
 document.addEventListener("DOMContentLoaded", () => {
@@ -12,14 +49,14 @@ document.addEventListener("DOMContentLoaded", () => {
     const oneYearAgo = new Date();
     oneYearAgo.setFullYear(today.getFullYear() - 1);
     const formatDateItem = (d) => d.toISOString().split('T')[0];
-    
+
     const fromInput = document.getElementById("date_from");
     const toInput = document.getElementById("date_to");
-    if(fromInput) {
+    if (fromInput) {
         fromInput.min = formatDateItem(oneYearAgo);
         fromInput.max = formatDateItem(today);
     }
-    if(toInput) {
+    if (toInput) {
         toInput.min = formatDateItem(oneYearAgo);
         toInput.max = formatDateItem(today);
     }
@@ -70,7 +107,7 @@ function startSearch(e) {
             return;
         }
     }
-    
+
     // Check for empty base keyword
     const testParsed = parseKeywords(params.keywords);
     if (!testParsed || testParsed.length === 0) {
@@ -83,13 +120,11 @@ function startSearch(e) {
     btnText.textContent = "⏳ Buscando…";
 
     if (document.getElementById("local_processing").checked) {
-        // Show skip button for local mode
         const skipBtn = document.getElementById("btn-skip-process");
         if (skipBtn) skipBtn.classList.remove("hidden");
         startLocalSearch(params);
         return;
     }
-    // Hide skip button for server mode
     const skipBtn = document.getElementById("btn-skip-process");
     if (skipBtn) skipBtn.classList.add("hidden");
 
@@ -99,6 +134,9 @@ function startSearch(e) {
     document.getElementById("log-panel").innerHTML = "";
     document.getElementById("progress-bar").style.width = "0%";
     document.getElementById("progress-label").textContent = "Iniciando…";
+
+    // start timer
+    _startTimer();
 
     // Feature 4: Build smart tags from keywords
     buildSmartTags(form.keywords.value);
@@ -117,6 +155,7 @@ function startSearch(e) {
             alert("Erro ao iniciar busca: " + err);
             btn.disabled = false;
             btnText.textContent = "🔍 Buscar Itens";
+            _stopTimer();
         });
 }
 
@@ -127,10 +166,13 @@ async function startLocalSearch(params) {
     document.getElementById("log-panel").innerHTML = "";
     document.getElementById("progress-bar").style.width = "0%";
     document.getElementById("progress-label").textContent = "Iniciando Processamento Local…";
-    
+
     // Feature 4: Build smart tags from keywords
     buildSmartTags(params.keywords);
-    
+
+    // start timer / counter
+    _startTimer();
+
     function logCB(msg) {
         const logPanel = document.getElementById("log-panel");
         let cls = "";
@@ -142,7 +184,7 @@ async function startLocalSearch(params) {
         logPanel.appendChild(div);
         logPanel.scrollTop = logPanel.scrollHeight;
     }
-    
+
     function progCB(current, total, label) {
         const pct = Math.round((current / total) * 100);
         document.getElementById("progress-bar").style.width = pct + "%";
@@ -151,12 +193,16 @@ async function startLocalSearch(params) {
 
     try {
         await runLocalExtraction(params, logCB, progCB);
+        _stopTimer();
+        const elapsed = _elapsedStr();
         if (isSearchStopped) {
-           finishSearchUI("⏹ Busca interrompida pelo usuário.", "error");
+            finishSearchUI("⏹ Busca interrompida pelo usuário.", "error");
         } else {
-           finishSearchUI(`✅ Concluído — ${allResults.length} itens encontrados.`, "done");
+            finishSearchUI(`✅ Concluído — ${allResults.length} itens encontrados.`, "done");
+            showCompletionLog(_itemsVerified, elapsed);
         }
     } catch (e) {
+        _stopTimer();
         console.error(e);
         logCB(`Erro fatal: ${e.message}`);
         finishSearchUI("⚠ Erro durante a extração local.", "error");
@@ -167,6 +213,7 @@ function pollJob(jobId) {
     if (isSearchStopped) {
         clearInterval(pollTimer);
         pollTimer = null;
+        _stopTimer();
         finishSearchUI("⏹ Busca interrompida pelo usuário.", "error");
         return;
     }
@@ -192,10 +239,23 @@ function pollJob(jobId) {
             }).join("");
             logPanel.scrollTop = logPanel.scrollHeight;
 
+            // Parse log lines to count ALL items scanned (remote mode)
+            let remoteScanned = 0;
+            for (const l of job.logs) {
+                const m = l.match(/Verificando (\d+) itens do Processo/);
+                if (m) remoteScanned += parseInt(m[1], 10);
+            }
+            if (remoteScanned > 0) {
+                _itemsVerified = remoteScanned;
+                _updateStatusPanel();
+            }
+
             // done?
             if (job.status === "done" || job.status === "error" || job.status === "captcha") {
                 clearInterval(pollTimer);
                 pollTimer = null;
+                _stopTimer();
+                const elapsed = _elapsedStr();
 
                 const btn = document.getElementById("btn-search");
                 const btnText = document.getElementById("btn-search-text");
@@ -213,6 +273,7 @@ function pollJob(jobId) {
                 } else {
                     document.getElementById("progress-label").textContent =
                         `✅ Concluído — ${job.total_results} itens encontrados.`;
+                    showCompletionLog(_itemsVerified, elapsed);
                 }
 
                 if (job.results && job.results.length > 0) {
@@ -230,9 +291,19 @@ function stopSearch() {
     isSearchStopped = true;
 }
 
+// ── Completion Log (inline no painel) ───────────────────────────────────
+function showCompletionLog(items, elapsed) {
+    const logPanel = document.getElementById("log-panel");
+    if (!logPanel) return;
+    const div = document.createElement("div");
+    div.className = "log-completion";
+    div.textContent = `✅ Processamento finalizado: ${items} itens verificados em ${elapsed}.`;
+    logPanel.appendChild(div);
+    logPanel.scrollTop = logPanel.scrollHeight;
+}
+
 // ── Modal helpers ────────────────────────────────────────────────────────
 function handleModalOverlayClick(event) {
-    // Close only if click is directly on the overlay (not on modal-content child)
     if (event.target === event.currentTarget) {
         event.currentTarget.classList.add("hidden");
     }
@@ -246,7 +317,15 @@ function closeHelpModal() {
     document.getElementById("help-modal").classList.add("hidden");
 }
 
-function finishSearchUI(msg, status="done") {
+function openAutoModal() {
+    document.getElementById("auto-modal").classList.remove("hidden");
+}
+
+function closeAutoModal() {
+    document.getElementById("auto-modal").classList.add("hidden");
+}
+
+function finishSearchUI(msg, status = "done") {
     const btn = document.getElementById("btn-search");
     const btnText = document.getElementById("btn-search-text");
     btn.disabled = false;
@@ -264,10 +343,10 @@ function showResults() {
 }
 
 function updateStats() {
-    const pending  = allResults.filter(r => r.status === "pending").length;
+    const pending    = allResults.filter(r => r.status === "pending").length;
     const to_analyze = allResults.filter(r => r.status === "to_analyze").length;
-    const approved = allResults.filter(r => r.status === "approved").length;
-    const rejected = allResults.filter(r => r.status === "rejected").length;
+    const approved   = allResults.filter(r => r.status === "approved").length;
+    const rejected   = allResults.filter(r => r.status === "rejected").length;
 
     document.getElementById("results-stats").innerHTML = `
     <span><span class="dot dot-pending"></span> ${pending} pendentes</span>
@@ -296,23 +375,15 @@ function renderCards() {
         return true;
     });
 
-    // Sort: "pending" items first (unreviewed), then treated items, rejected always last.
+    // Sort: "pending" items first, then treated, rejected last.
     filtered.sort((a, b) => {
-        // Pending = not yet reviewed → top of queue
         const aPending = a.status === 'pending' ? 0 : 1;
         const bPending = b.status === 'pending' ? 0 : 1;
         if (aPending !== bPending) return aPending - bPending;
 
-        // Among non-pending: rejected sink to bottom
         const aRejected = a.status === 'rejected' ? 1 : 0;
         const bRejected = b.status === 'rejected' ? 1 : 0;
-        if (aRejected !== bRejected) return aRejected - bRejected;
-
-        // Within same tier: exact matches first
-        const qualityOrder = { exact: 0, compound: 1, partial: 2 };
-        const qa = qualityOrder[a.match_quality] ?? 2;
-        const qb = qualityOrder[b.match_quality] ?? 2;
-        return qa - qb;
+        return aRejected - bRejected;
     });
 
     if (filtered.length === 0) {
@@ -327,7 +398,6 @@ function renderCards() {
             : item.status === "approved" ? "Aprovado"
                 : item.status === "to_analyze" ? "Analisar"
                 : "Rejeitado";
-        // Page number for navigation reference
         const pageNum = getPageNumber(item);
 
         // Feature 2: Read badge
@@ -335,7 +405,7 @@ function renderCards() {
             ? '<span class="badge badge-read">👁 Lido</span>'
             : '';
 
-        // Feature 3: Copy ID & item identifier
+        // Feature 3: item label
         const itemLabel = `${escapeHtml(item.process_id)} / Item #${item.item_id}`;
 
         // Feature 5: Check results button state
@@ -386,9 +456,9 @@ function renderCards() {
           <button class="card-btn card-btn-approve" onclick="setStatus(${idx},'approved')">✓ Aprovar</button>
           <button class="card-btn card-btn-analyze" onclick="setStatus(${idx},'to_analyze')">🔎 Analisar</button>
           <button class="card-btn card-btn-reject"  onclick="setStatus(${idx},'rejected')">✗ Rejeitar</button>
-          <button class="card-btn card-btn-open"     onclick="openProcess(${idx})">↗ Abrir</button>
+          <button class="card-btn card-btn-open"     onclick="openProcess(${idx})" id="open-btn-${idx}">↗ Abrir</button>
           <button class="${checkBtnClass}" onclick="checkResults(${idx})" style="position:relative">${checkBtnLabel}${checkTooltip}</button>
-          <button class="card-btn card-btn-copy" onclick="copyId(event, ${idx})">📋 Copiar ID</button>
+          <button class="card-btn card-btn-copy" id="copy-btn-${idx}" onclick="copyId(event, ${idx})">📋 Copiar ID</button>
         </div>
       </div>
     `;
@@ -402,11 +472,22 @@ function setStatus(idx, status) {
     renderCards();
 }
 
-// Feature 2 + Feature 3 (Deep Linking): open with text fragment and mark as read
+// Feature: Deep linking with autoPage + autoItem params
 function openProcess(idx) {
     readItems.add(idx);
     const item = allResults[idx];
-    const deepUrl = item.source_url + `#:~:text=${encodeURIComponent(item.item_id)}`;
+
+    // Build base editais URL
+    const parts = item.source_url.split("/");
+    const seq  = parts.pop();
+    const ano  = parts.pop();
+    const cnpj = parts.pop();
+    const baseUrl = `https://pncp.gov.br/app/editais/${cnpj}/${ano}/${seq}`;
+
+    // Deep link params
+    const page = getPageNumber(item);
+    const deepUrl = `${baseUrl}?autoPage=${page}&autoItem=${item.item_id}`;
+
     window.open(deepUrl, "_blank");
     renderCards();
 }
@@ -418,45 +499,53 @@ function wordBoundaryMatch(term, text) {
     return re.test(text);
 }
 
-// Feature 3: Copy ID to clipboard (copies ONLY the item_id)
+// Feature 3: Copy ID to clipboard — reads value from allResults (stable)
 function copyId(event, idx) {
     event.stopPropagation();
+
+    // Read from data store — avoids DOM staleness
     const item = allResults[idx];
-    const text = `${item.item_id}`;
+    const text = String(item.item_id);
 
     const btn = event.currentTarget;
     const origText = btn.textContent;
 
-    navigator.clipboard.writeText(text).then(() => {
+    const doSuccess = () => {
         btn.textContent = '✓ Copiado!';
         btn.classList.add('copy-success');
         setTimeout(() => {
             btn.textContent = origText;
             btn.classList.remove('copy-success');
         }, 1500);
-    }).catch(() => {
-        // Fallback for older browsers
-        const ta = document.createElement('textarea');
-        ta.value = text;
-        document.body.appendChild(ta);
-        ta.select();
-        document.execCommand('copy');
-        document.body.removeChild(ta);
-        btn.textContent = '✓ Copiado!';
-        btn.classList.add('copy-success');
-        setTimeout(() => {
-            btn.textContent = origText;
-            btn.classList.remove('copy-success');
-        }, 1500);
-    });
+    };
+
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(doSuccess).catch(() => {
+            _fallbackCopy(text, doSuccess);
+        });
+    } else {
+        _fallbackCopy(text, doSuccess);
+    }
+}
+
+function _fallbackCopy(text, cb) {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.focus();
+    ta.select();
+    try { document.execCommand('copy'); } catch (_) {}
+    document.body.removeChild(ta);
+    cb();
 }
 
 // Feature 5: Check additional results
 function buildCheckKey(item) {
-    // Extract cnpj/ano/seq from source_url: https://pncp.gov.br/app/editais/{cnpj}/{ano}/{seq}
     const parts = item.source_url.split("/");
-    const seq = parts.pop();
-    const ano = parts.pop();
+    const seq  = parts.pop();
+    const ano  = parts.pop();
     const cnpj = parts.pop();
     return `${cnpj}/${ano}/${seq}/${item.item_id}`;
 }
@@ -465,13 +554,11 @@ function checkResults(idx) {
     const item = allResults[idx];
     const checkKey = buildCheckKey(item);
 
-    // Don't re-fetch if already checked or loading
     if (checkCache[checkKey]) return;
 
-    // Extract parts from source_url
     const parts = item.source_url.split("/");
-    const seq = parts.pop();
-    const ano = parts.pop();
+    const seq  = parts.pop();
+    const ano  = parts.pop();
     const cnpj = parts.pop();
 
     const apiUrl = `https://pncp.gov.br/api/pncp/v1/orgaos/${cnpj}/compras/${ano}/${seq}/itens/${item.item_id}/resultados`;
@@ -486,17 +573,15 @@ function checkResults(idx) {
                 status: data.has_data ? "ok" : "empty",
                 data: data.data || null,
             };
-            
-            // Auto-Rejeição: se não houver dados
+
             if (!data.has_data) {
                 setStatus(idx, 'rejected');
                 return;
             }
-            
+
             renderCards();
         })
         .catch(() => {
-            // On fetch error: log only, do NOT auto-reject
             const logPanel = document.getElementById('log-panel');
             if (logPanel) {
                 const div = document.createElement('div');
@@ -516,25 +601,20 @@ function buildSmartTags(keywordsStr) {
     const container = document.getElementById("smart-tags");
     container.innerHTML = "";
 
-    // Extract all filter tokens from [...] blocks:
-    // bare terms (AND) and {} alternatives (OR) are each separate chips
     const chips = [];
     const bracketRegex = /\[([^\]]+)\]/g;
     let m;
     while ((m = bracketRegex.exec(keywordsStr)) !== null) {
         const inner = m[1];
-        // find {} groups and bare tokens, separated by |
         const innerRegex = /\{([^}]+)\}|([^|{}]+)/g;
         let im;
         while ((im = innerRegex.exec(inner)) !== null) {
             if (im[1]) {
-                // OR group — each alternative becomes its own chip
                 im[1].split('|').forEach(alt => {
                     const t = alt.trim();
                     if (t) chips.push(t);
                 });
             } else if (im[2]) {
-                // bare AND token
                 const t = im[2].trim();
                 if (t) chips.push(t);
             }
@@ -575,7 +655,6 @@ function exportApproved() {
     })
         .then(r => r.json())
         .then(data => {
-            // also download as JSON
             const blob = new Blob([JSON.stringify(approved, null, 2)], { type: "application/json" });
             const url = URL.createObjectURL(blob);
             const a = document.createElement("a");
@@ -596,8 +675,8 @@ function newSearch() {
     hide("results-section");
     hide("progress-section");
     document.getElementById("smart-tags").innerHTML = "";
-    document.getElementById("search-form").reset(); // Libera filtros visuais
-    document.getElementById("filter-text").value = ""; // Limpa searchbox do grid
+    document.getElementById("search-form").reset();
+    document.getElementById("filter-text").value = "";
     window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
@@ -649,8 +728,7 @@ function generateAIPrompt() {
         alert("Por favor, insira a descrição principal.");
         return;
     }
-    
-    // Scope: only 'to_analyze' and 'approved' — pending and rejected excluded
+
     const validStatuses = ["to_analyze", "approved"];
     const itemsForAI = allResults
         .filter(r => validStatuses.includes(r.status))
@@ -658,9 +736,8 @@ function generateAIPrompt() {
             id: r.item_id ? String(r.item_id) : r.process_id,
             descricao: r.descricao
         }));
-        
+
     if (itemsForAI.length === 0) {
-        // show inline feedback on the prompt button instead of alert
         const actionBtn = document.getElementById("btn-ai-prompt");
         if (actionBtn) {
             const orig = actionBtn.innerHTML;
@@ -676,13 +753,10 @@ function generateAIPrompt() {
         itens_para_analise: itemsForAI,
         instrucao: "Responda indicando o ID do processo e o motivo da compatibilidade."
     };
-    
+
     const jsonStr = JSON.stringify(payload, null, 2);
-    
-    
+
     const copyCallback = () => {
-        // btn-ai-prompt is the action button *outside* the modal (in the results bar)
-        // the modal's own button has no id, so we target both and use a toast fallback
         const actionBtn = document.getElementById("btn-ai-prompt");
         if (actionBtn) {
             const orig = actionBtn.innerHTML;
@@ -696,19 +770,149 @@ function generateAIPrompt() {
             }, 2200);
         }
     };
-    
+
     navigator.clipboard.writeText(jsonStr).then(() => {
         copyCallback();
         closeAIPromptModal();
-    }).catch(err => {
-        // Fallback
-        const ta = document.createElement('textarea');
-        ta.value = jsonStr;
-        document.body.appendChild(ta);
-        ta.select();
-        document.execCommand('copy');
-        document.body.removeChild(ta);
-        copyCallback();
+    }).catch(() => {
+        _fallbackCopy(jsonStr, copyCallback);
         closeAIPromptModal();
     });
+}
+
+// ── Tampermonkey Script ──────────────────────────────────────────────────
+const TAMPERMONKEY_SCRIPT = `// ==UserScript==
+// @name         Automação PNCP - Paginação e Clique
+// @namespace    http://tampermonkey.net/
+// @version      1.7.3
+// @description  Suporte a SPA (Angular), trava de duplicidade e código otimizado
+// @match        *://pncp.gov.br/*
+// @grant        window.onurlchange
+// @author       github.com/ruantsdo
+// ==/UserScript==
+
+(function() {
+    'use strict';
+
+    let executando = false;
+    const esperar = ms => new Promise(res => setTimeout(res, ms));
+
+    const simularClique = el => {
+        el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+    };
+
+    const aguardarElemento = (seletor, timeout = 15000) => {
+        return new Promise((resolve, reject) => {
+            const inicio = Date.now();
+            const timer = setInterval(() => {
+                const el = document.querySelector(seletor);
+                if (el) {
+                    clearInterval(timer);
+                    resolve(el);
+                } else if (Date.now() - inicio > timeout) {
+                    clearInterval(timer);
+                    reject(\`[Tampermonkey] Timeout: \${seletor}\`);
+                }
+            }, 1000);
+        });
+    };
+
+    const selecionarOpcao = async (selectIndex, textoBuscado) => {
+        const selects = document.querySelectorAll('ng-select');
+        if (selects.length <= selectIndex) return false;
+
+        simularClique(selects[selectIndex].querySelector('.ng-select-container'));
+        await esperar(1000);
+
+        const opcao = Array.from(document.querySelectorAll('.ng-option'))
+            .find(opt => opt.innerText.trim() === String(textoBuscado));
+
+        if (opcao) opcao.click();
+        return !!opcao;
+    };
+
+    const alterarPaginacao = async (pagina) => {
+        console.log(\`[Tampermonkey] Ajustando paginação\`);
+        await selecionarOpcao(0, '50');
+        await esperar(2000);
+        await selecionarOpcao(1, pagina);
+    };
+
+    const aguardarEClicarItem = (idItem, timeout = 20000) => {
+        console.log(\`[Tampermonkey] Monitorando tabela: item \${idItem}\`);
+        return new Promise((resolve, reject) => {
+            const inicio = Date.now();
+            const timer = setInterval(() => {
+                const linhas = document.querySelectorAll('datatable-body-row');
+                for (const linha of linhas) {
+                    const celulaId = linha.querySelector('datatable-body-cell:first-child');
+                    if (celulaId && celulaId.innerText.trim() === String(idItem)) {
+                        const btn = linha.querySelector('button[aria-label="Detalhar"]');
+                        if (btn) {
+                            btn.click();
+                            clearInterval(timer);
+                            console.log(\`[Tampermonkey] Item \${idItem} encontrado\`);
+                            resolve(true);
+                            return;
+                        }
+                    }
+                }
+                if (Date.now() - inicio > timeout) {
+                    clearInterval(timer);
+                    reject(false);
+                }
+            }, 1000);
+        });
+    };
+
+    const verificarEExecutar = async () => {
+        if (!window.location.href.includes('/app/editais/') || executando) return;
+
+        const params = new URLSearchParams(window.location.search);
+        const autoPage = params.get('autoPage');
+        const autoItem = params.get('autoItem');
+
+        if (autoPage && autoItem) {
+            executando = true;
+            window.history.replaceState({}, document.title, window.location.pathname);
+            await esperar(3000);
+
+            try {
+                await aguardarElemento('ng-select');
+                await alterarPaginacao(autoPage);
+                await aguardarEClicarItem(autoItem);
+            } catch (erro) {
+                console.warn(erro);
+            } finally {
+                executando = false;
+            }
+        }
+    };
+
+    verificarEExecutar();
+    if (window.onurlchange === null) {
+        window.addEventListener('urlchange', verificarEExecutar);
+    }
+})();`;
+
+function copyTampermonkeyScript() {
+    const btn = document.getElementById("btn-copy-script");
+    const origText = btn ? btn.textContent : "";
+
+    const doSuccess = () => {
+        if (btn) {
+            btn.textContent = "✓ Script Copiado!";
+            btn.classList.add("copy-success");
+            setTimeout(() => {
+                btn.textContent = origText;
+                btn.classList.remove("copy-success");
+            }, 2000);
+        }
+    };
+
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(TAMPERMONKEY_SCRIPT).then(doSuccess).catch(() => _fallbackCopy(TAMPERMONKEY_SCRIPT, doSuccess));
+    } else {
+        _fallbackCopy(TAMPERMONKEY_SCRIPT, doSuccess);
+    }
 }

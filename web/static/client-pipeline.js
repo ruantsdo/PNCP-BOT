@@ -236,7 +236,7 @@ async function runLocalExtraction(params, logCallback, progressCallback) {
         window.skipProcess = false;
         window.restartProcess = false;
         const pid = proc.numero_controle_pncp;
-        const urlMatch = (proc.item_url || "").match(/\/compras\/(\d+)\/(\d+)\/(\d+)/);
+        const urlMatch = (proc.item_url || "").match(/\/(?:compras|editais)\/(\d+)\/(\d+)\/(\d+)/);
         if (!urlMatch) {
             logCallback(`URL inválida para ${pid}`);
             continue;
@@ -264,6 +264,12 @@ async function runLocalExtraction(params, logCallback, progressCallback) {
                 
                 const itemsUrl = `https://pncp.gov.br/api/pncp/v1/orgaos/${cnpj}/compras/${ano}/${seq}/itens`;
                 const localItems = await fetchProxy(itemsUrl, { pagina: p, tamanhoPagina: 500 });
+                
+                // Count ALL scanned items (matched or not)
+                if (typeof _itemsVerified !== 'undefined') {
+                    _itemsVerified += localItems.length;
+                    if (typeof _updateStatusPanel === 'function') _updateStatusPanel();
+                }
                 
                 for (let i = 0; i < localItems.length; i++) {
                     const item = localItems[i];
@@ -304,7 +310,7 @@ async function runLocalExtraction(params, logCallback, progressCallback) {
                             valor_total: item.valorTotal,
                             data_publicacao: proc.data_publicacao_pncp,
                             contratante: proc.orgao_nome,
-                            source_url: proc.item_url ? "https://pncp.gov.br" + proc.item_url : `https://pncp.gov.br/app/editais/${cnpj}/${ano}/${seq}`,
+                            source_url: `https://pncp.gov.br/app/editais/${cnpj}/${ano}/${seq}`,
                             status: "pending",
                             ...bestMatch
                         };
