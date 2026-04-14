@@ -1,4 +1,17 @@
-// ── Native Fuzzy Match ──────────────────────────────────────────
+// ── PNCP API URL Constants (mirrors config.py) ───────────────────────────────
+const PNCP_SEARCH_URL    = "https://pncp.gov.br/api/search/";
+const PNCP_ITEMS_URL     = (cnpj, ano, seq) =>
+    `https://pncp.gov.br/api/pncp/v1/orgaos/${cnpj}/compras/${ano}/${seq}/itens`;
+const PNCP_COUNT_URL     = (cnpj, ano, seq) =>
+    `https://pncp.gov.br/api/pncp/v1/orgaos/${cnpj}/compras/${ano}/${seq}/itens/quantidade`;
+
+// ── Fetch configuration ───────────────────────────────────────────────────────
+const FETCH_TIMEOUT_MS      = 20_000;       // 20 s per request
+const FETCH_RETRYABLE_CODES = new Set([429, 500, 502, 503, 504]);
+const FETCH_MAX_RETRIES     = 3;
+const FETCH_BACKOFF_BASE_MS = 2_000;        // 2 s → 4 s → 8 s
+
+// ── Native Fuzzy Match ─────────────────────────────────────────────────────────
 function levenshteinDistance(s1, s2) {
     if (s1.length === 0) return s2.length;
     if (s2.length === 0) return s1.length;
@@ -47,7 +60,7 @@ function partialRatio(term, text) {
     return maxScore;
 }
 
-// ── Normalization & Parsing ──────────────────────────────────────
+// ── Normalization & Parsing ────────────────────────────────────────────────────
 function normalizeStr(text) {
     if (!text) return "";
     let s = text.toLowerCase()
@@ -73,7 +86,7 @@ function parseKeywords(raw) {
         let mOuter;
         while ((mOuter = regexOuter.exec(part)) !== null) {
             const inner = mOuter[1];
-            const regexInner = /\{([^\}]+)\}|([^|{}]+)/g;
+            const regexInner = /\{([^}]+)\}|([^|{}]+)/g;
             let mInner;
             while ((mInner = regexInner.exec(inner)) !== null) {
                 if (mInner[1]) {
@@ -94,7 +107,13 @@ function parseKeywords(raw) {
     return keywords;
 }
 
-// ── Fetch Helper ────────────────────────────────────────────────
+// ── Robust Fetch Helper ────────────────────────────────────────────────────────
+/**
+ * Wraps the /api/proxy endpoint with:
+ *   - AbortController-based timeout (FETCH_TIMEOUT_MS)
+ *   - Exponential-backoff retry for retryable HTTP status codes
+ *   - Clear error messages distinguishing timeout vs API error
+ */
 async function fetchProxy(url, params = {}) {
     const searchParams = new URLSearchParams();
     searchParams.append("url", url);
@@ -104,13 +123,55 @@ async function fetchProxy(url, params = {}) {
         }
     }
     const proxyUrl = `/api/proxy?${searchParams.toString()}`;
-    const resp = await fetch(proxyUrl);
-    if (!resp.ok) {
-        throw new Error(`Erro na API (${resp.status}) ao acessar ${url}`);
+
+    let lastError;
+    for (let attempt = 1; attempt <= FETCH_MAX_RETRIES + 1; attempt++) {
+        const controller = new AbortController();
+        const timerId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+        try {
+            const resp = await fetch(proxyUrl, { signal: controller.signal });
+            clearTimeout(timerId);
+
+            if (resp.ok) {
+                return await resp.json();
+            }
+
+            // Transient server error — maybe retry
+            if (FETCH_RETRYABLE_CODES.has(resp.status) && attempt <= FETCH_MAX_RETRIES) {
+                const delay = FETCH_BACKOFF_BASE_MS * Math.pow(2, attempt - 1);
+                lastError = new Error(`Erro na API (${resp.status}) ao acessar ${url}`);
+                await _sleep(delay);
+                continue;
+            }
+
+            throw new Error(`Erro na API (${resp.status}) ao acessar ${url}`);
+        } catch (err) {
+            clearTimeout(timerId);
+            if (err.name === "AbortError") {
+                lastError = new Error(`Timeout (${FETCH_TIMEOUT_MS / 1000}s) ao acessar ${url}`);
+            } else if (err.message.startsWith("Erro na API") || err.message.startsWith("Timeout")) {
+                lastError = err;
+            } else {
+                lastError = new Error(`Erro de rede ao acessar ${url}: ${err.message}`);
+            }
+
+            // Only retry on timeout/network issues, not on already-classified API errors
+            if (attempt <= FETCH_MAX_RETRIES && !(err.message.startsWith("Erro na API"))) {
+                const delay = FETCH_BACKOFF_BASE_MS * Math.pow(2, attempt - 1);
+                await _sleep(delay);
+                continue;
+            }
+            throw lastError;
+        }
     }
-    return resp.json();
+    throw lastError;
 }
 
+function _sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+// ── Local Extraction Pipeline ──────────────────────────────────────────────────
 async function runLocalExtraction(params, logCallback, progressCallback) {
     const parsed = parseKeywords(params.keywords);
     if (parsed.length === 0) {
@@ -172,7 +233,7 @@ async function runLocalExtraction(params, logCallback, progressCallback) {
             logCallback(`Buscando processos para '${kw}' (pág ${page})`);
             
             try {
-                const searchRes = await fetchProxy("https://pncp.gov.br/api/search/", {
+                const searchRes = await fetchProxy(PNCP_SEARCH_URL, {
                     q: kw,
                     tipos_documento: "edital",
                     ordenacao: "-data",
@@ -215,7 +276,7 @@ async function runLocalExtraction(params, logCallback, progressCallback) {
                 page++;
                 
             } catch (e) {
-                logCallback(`Erro ao buscar processos (API): ${e.message}`);
+                logCallback(`⚠ Erro ao buscar processos (API): ${e.message}`);
                 break; 
             }
         }
@@ -238,95 +299,108 @@ async function runLocalExtraction(params, logCallback, progressCallback) {
         const pid = proc.numero_controle_pncp;
         const urlMatch = (proc.item_url || "").match(/\/(?:compras|editais)\/(\d+)\/(\d+)\/(\d+)/);
         if (!urlMatch) {
-            logCallback(`URL inválida para ${pid}`);
+            logCallback(`⚠ URL inválida para ${pid}`);
             continue;
         }
         
         const [_, cnpj, ano, seq] = urlMatch;
+
+        // Update progress bar per process
+        if (typeof progressCallback === 'function') {
+            progressCallback(processedCount, processes.length, `Verificando ${pid}…`);
+        }
+
+        // ── Fetch item count (with robust error handling) ─────────────────────
+        let itemsCount = 0;
         try {
-            const cntUrl = `https://pncp.gov.br/api/pncp/v1/orgaos/${cnpj}/compras/${ano}/${seq}/itens/quantidade`;
-            const countStr = await fetchProxy(cntUrl);
-            const itemsCount = parseInt(countStr, 10) || 0;
+            const countStr = await fetchProxy(PNCP_COUNT_URL(cnpj, ano, seq));
+            itemsCount = parseInt(countStr, 10) || 0;
+        } catch (e) {
+            logCallback(`⚠ Não foi possível obter contagem de itens para ${pid}: ${e.message} — processo ignorado.`);
+            continue;
+        }
+
+        logCallback(`[${processedCount}/${processes.length}] Verificando ${itemsCount} itens do Processo ${pid}`);
+        if (itemsCount === 0) continue;
+
+        // Update items_verified counter
+        if (typeof _itemsVerified !== 'undefined') {
+            _itemsVerified += itemsCount;
+            if (typeof _updateStatusPanel === 'function') _updateStatusPanel();
+        }
             
-            logCallback(`[${processedCount}/${processes.length}] Verificando ${itemsCount} itens do Processo ${pid}`);
-            if (itemsCount === 0) continue;
+        const totalPages = Math.ceil(itemsCount / 500);
+        for (let p = 1; p <= totalPages; p++) {
+            if (isSearchStopped) return;
             
-            const totalPages = Math.ceil(itemsCount / 500);
-            for (let p = 1; p <= totalPages; p++) {
-                if (isSearchStopped) return;
+            if (window.skipProcess) {
+                logCallback(`Processo ${pid} pulado pelo usuário.`);
+                window.skipProcess = false;
+                break; 
+            }
+
+            // ── Fetch items page (with robust error handling) ─────────────────
+            let localItems;
+            try {
+                localItems = await fetchProxy(PNCP_ITEMS_URL(cnpj, ano, seq), { pagina: p, tamanhoPagina: 500 });
+            } catch (e) {
+                logCallback(`⚠ Erro ao buscar itens (pág ${p}) do Processo ${pid}: ${e.message}`);
+                break; // skip remaining pages of this process only
+            }
+            
+            for (let i = 0; i < localItems.length; i++) {
+                const item = localItems[i];
+                const desc = item.descricao || "";
+                const normDesc = normalizeStr(desc);
                 
-                if (window.skipProcess) {
-                    logCallback(`Processo ${pid} pulado pelo usuário.`);
-                    window.skipProcess = false;
-                    break; 
-                }
-                // restartProcess removed (instabile)
+                let bestMatch = null;
+                let bestQuality = 2; // 0=exact, 1=compound, 2=partial
                 
-                const itemsUrl = `https://pncp.gov.br/api/pncp/v1/orgaos/${cnpj}/compras/${ano}/${seq}/itens`;
-                const localItems = await fetchProxy(itemsUrl, { pagina: p, tamanhoPagina: 500 });
-                
-                // Count ALL scanned items (matched or not)
-                if (typeof _itemsVerified !== 'undefined') {
-                    _itemsVerified += localItems.length;
-                    if (typeof _updateStatusPanel === 'function') _updateStatusPanel();
-                }
-                
-                for (let i = 0; i < localItems.length; i++) {
-                    const item = localItems[i];
-                    const desc = item.descricao || "";
-                    const normDesc = normalizeStr(desc);
-                    
-                    let bestMatch = null;
-                    let bestQuality = 2; // 0=exact, 1=compound, 2=partial
-                    
-                    for (const pk of parsed) {
-                        const m = checkMatchStatus(pk, normDesc);
-                        if (m) {
-                            let isExact = false, isCompound = false;
-                            if (pk.groups.length === 0) { isExact = true; }
-                            else if (m.groups_unmet === 0) { isExact = true; }
-                            else if (m.groups_met > 0) { isCompound = true; }
-                            
-                            const qScore = isExact ? 0 : (isCompound ? 1 : 2);
-                            if (qScore < bestQuality || bestMatch === null) {
-                                bestQuality = qScore;
-                                bestMatch = { 
-                                    matched_keywords: `${pk.term}`, // Cleaned as requested
-                                    match_quality: isExact ? 'exact' : (isCompound ? 'compound' : 'partial')
-                                };
-                            }
+                for (const pk of parsed) {
+                    const m = checkMatchStatus(pk, normDesc);
+                    if (m) {
+                        let isExact = false, isCompound = false;
+                        if (pk.groups.length === 0) { isExact = true; }
+                        else if (m.groups_unmet === 0) { isExact = true; }
+                        else if (m.groups_met > 0) { isCompound = true; }
+                        
+                        const qScore = isExact ? 0 : (isCompound ? 1 : 2);
+                        if (qScore < bestQuality || bestMatch === null) {
+                            bestQuality = qScore;
+                            bestMatch = { 
+                                matched_keywords: `${pk.term}`,
+                                match_quality: isExact ? 'exact' : (isCompound ? 'compound' : 'partial')
+                            };
                         }
                     }
+                }
+                
+                if (bestMatch) {
+                    const rec = {
+                        process_id: pid,
+                        item_id: item.numeroItem,
+                        item_index: ((p - 1) * 500) + i,
+                        descricao: desc,
+                        quantidade: item.quantidade,
+                        unidade: item.unidadeMedida,
+                        valor_unitario: item.valorUnitarioEstimado,
+                        valor_total: item.valorTotal,
+                        data_publicacao: proc.data_publicacao_pncp,
+                        contratante: proc.orgao_nome,
+                        source_url: `https://pncp.gov.br/app/editais/${cnpj}/${ano}/${seq}`,
+                        status: "pending",
+                        ...bestMatch
+                    };
+                    allResults.push(rec);
                     
-                    if (bestMatch) {
-                        const rec = {
-                            process_id: pid,
-                            item_id: item.numeroItem,
-                            item_index: ((p - 1) * 500) + i,
-                            descricao: desc,
-                            quantidade: item.quantidade,
-                            unidade: item.unidadeMedida,
-                            valor_unitario: item.valorUnitarioEstimado,
-                            valor_total: item.valorTotal,
-                            data_publicacao: proc.data_publicacao_pncp,
-                            contratante: proc.orgao_nome,
-                            source_url: `https://pncp.gov.br/app/editais/${cnpj}/${ano}/${seq}`,
-                            status: "pending",
-                            ...bestMatch
-                        };
-                        allResults.push(rec);
-                        
-                        logCallback(`✓ Item #${rec.item_id} → ${desc.substring(0,60)}`);
-                        
-                        // REACTIVE UI
-                        if (typeof showResults === 'function') {
-                            showResults();
-                        }
+                    logCallback(`✓ Item #${rec.item_id} → ${desc.substring(0,60)}`);
+                    
+                    // REACTIVE UI
+                    if (typeof showResults === 'function') {
+                        showResults();
                     }
                 }
             }
-        } catch (e) {
-            logCallback(`Erro ao buscar itens do Processo ${pid}: ${e.message}`);
         }
     }
     
