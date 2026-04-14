@@ -6,6 +6,84 @@ let currentJobId = null;
 let pollTimer = null;
 let isSearchStopped = false;
 
+// ── Toast System ─────────────────────────────────────────────────────────────
+/**
+ * showToast(message, type, duration)
+ * type: 'success' | 'warn' | 'error' | 'info'
+ */
+function showToast(message, type = 'info', duration = 3500) {
+    let container = document.getElementById('toast-container');
+    if (!container) {
+        container = document.createElement('div');
+        container.id = 'toast-container';
+        document.body.appendChild(container);
+    }
+    const toast = document.createElement('div');
+    toast.className = `toast toast-${type}`;
+    toast.textContent = message;
+    container.appendChild(toast);
+    requestAnimationFrame(() => toast.classList.add('toast-visible'));
+    const timeout = setTimeout(() => _removeToast(toast), duration);
+    toast.addEventListener('click', () => { clearTimeout(timeout); _removeToast(toast); });
+}
+
+function _removeToast(toast) {
+    toast.classList.remove('toast-visible');
+    toast.classList.add('toast-hiding');
+    toast.addEventListener('transitionend', () => toast.remove(), { once: true });
+}
+
+// ── Web Notifications + document.title flip ───────────────────────────────────
+const _ORIGINAL_TITLE = document.title;
+let _titleFlipInterval = null;
+
+function _requestNotificationPermission() {
+    if ('Notification' in window && Notification.permission === 'default') {
+        Notification.requestPermission();
+    }
+}
+
+function notifyCompletion(itemCount) {
+    // 1. Web Notification
+    if ('Notification' in window && Notification.permission === 'granted') {
+        try {
+            new Notification('PNCP Bot ✅', {
+                body: `${itemCount} ${itemCount === 1 ? 'item encontrado' : 'itens encontrados'}. Processamento concluído.`,
+                tag: 'pncp-done',
+            });
+        } catch (_) { /* some browsers block in non-secure contexts */ }
+    }
+
+    // 2. document.title flip (visible when tab is in background)
+    if (_titleFlipInterval) clearInterval(_titleFlipInterval);
+    let flipping = true;
+    _titleFlipInterval = setInterval(() => {
+        document.title = flipping ? `✅ Processo Finalizado — PNCP Bot` : _ORIGINAL_TITLE;
+        flipping = !flipping;
+    }, 1500);
+
+    // Stop flipping when user focuses the tab
+    const stopFlipping = () => {
+        clearInterval(_titleFlipInterval);
+        _titleFlipInterval = null;
+        document.title = _ORIGINAL_TITLE;
+        document.removeEventListener('visibilitychange', stopFlipping);
+    };
+    document.addEventListener('visibilitychange', () => {
+        if (!document.hidden) stopFlipping();
+    });
+    // Also stop after 30 s regardless
+    setTimeout(stopFlipping, 30_000);
+}
+
+// ── Unified log line colorizer ────────────────────────────────────────────────
+function colorizeLog(msg) {
+    if (msg.includes('✓')) return 'log-success';
+    if (msg.includes('⚠') || msg.toLowerCase().includes('erro') || msg.toLowerCase().includes('timeout')) return 'log-error';
+    if (msg.includes('CAPTCHA')) return 'log-warn';
+    return '';
+}
+
 // ── Timer / Counter state ────────────────────────────────────────────────
 let _timerInterval = null;
 let _timerStart = null;
@@ -119,6 +197,9 @@ function startSearch(e) {
     btn.disabled = true;
     btnText.textContent = "⏳ Buscando…";
 
+    // Request notification permission early (requires user gesture context)
+    _requestNotificationPermission();
+
     if (document.getElementById("local_processing").checked) {
         const skipBtn = document.getElementById("btn-skip-process");
         if (skipBtn) skipBtn.classList.remove("hidden");
@@ -175,9 +256,7 @@ async function startLocalSearch(params) {
 
     function logCB(msg) {
         const logPanel = document.getElementById("log-panel");
-        let cls = "";
-        if (msg.includes("✓")) cls = "log-success";
-        else if (msg.includes("⚠") || msg.toLowerCase().includes("erro")) cls = "log-error";
+        const cls = colorizeLog(msg);
         const div = document.createElement("div");
         div.className = cls;
         div.textContent = msg;
@@ -200,6 +279,7 @@ async function startLocalSearch(params) {
         } else {
             finishSearchUI(`✅ Concluído — ${allResults.length} itens encontrados.`, "done");
             showCompletionLog(_itemsVerified, elapsed);
+            notifyCompletion(allResults.length);
         }
     } catch (e) {
         _stopTimer();
@@ -228,25 +308,17 @@ function pollJob(jobId) {
                     `${job.progress.label} (${job.progress.current}/${job.progress.total})`;
             }
 
-            // logs
+            // logs — usando colorizeLog unificado
             const logPanel = document.getElementById("log-panel");
             logPanel.innerHTML = job.logs.map(l => {
-                let cls = "";
-                if (l.includes("✓")) cls = "log-success";
-                else if (l.includes("⚠")) cls = "log-warn";
-                else if (l.includes("Erro")) cls = "log-error";
+                const cls = colorizeLog(l);
                 return `<div class="${cls}">${escapeHtml(l)}</div>`;
             }).join("");
             logPanel.scrollTop = logPanel.scrollHeight;
 
-            // Parse log lines to count ALL items scanned (remote mode)
-            let remoteScanned = 0;
-            for (const l of job.logs) {
-                const m = l.match(/Verificando (\d+) itens do Processo/);
-                if (m) remoteScanned += parseInt(m[1], 10);
-            }
-            if (remoteScanned > 0) {
-                _itemsVerified = remoteScanned;
+            // items_verified via campo dedicado (sem regex)
+            if (job.items_verified > 0) {
+                _itemsVerified = job.items_verified;
                 _updateStatusPanel();
             }
 
@@ -279,6 +351,10 @@ function pollJob(jobId) {
                 if (job.results && job.results.length > 0) {
                     allResults = job.results;
                     showResults();
+                }
+
+                if (job.status === "done") {
+                    notifyCompletion(job.total_results);
                 }
             }
         })
@@ -507,17 +583,7 @@ function copyId(event, idx) {
     const item = allResults[idx];
     const text = String(item.item_id);
 
-    const btn = event.currentTarget;
-    const origText = btn.textContent;
-
-    const doSuccess = () => {
-        btn.textContent = '✓ Copiado!';
-        btn.classList.add('copy-success');
-        setTimeout(() => {
-            btn.textContent = origText;
-            btn.classList.remove('copy-success');
-        }, 1500);
-    };
+    const doSuccess = () => showToast('📋 ID Copiado!', 'success');
 
     if (navigator.clipboard && navigator.clipboard.writeText) {
         navigator.clipboard.writeText(text).then(doSuccess).catch(() => {
@@ -576,6 +642,7 @@ function checkResults(idx) {
 
             if (!data.has_data) {
                 setStatus(idx, 'rejected');
+                showToast('✗ Item movido para Recusado (sem dados extras)', 'warn');
                 return;
             }
 
@@ -756,20 +823,7 @@ function generateAIPrompt() {
 
     const jsonStr = JSON.stringify(payload, null, 2);
 
-    const copyCallback = () => {
-        const actionBtn = document.getElementById("btn-ai-prompt");
-        if (actionBtn) {
-            const orig = actionBtn.innerHTML;
-            actionBtn.innerHTML = "✓ Prompt Copiado!";
-            actionBtn.style.backgroundColor = "var(--approved-color)";
-            actionBtn.style.color = "#fff";
-            setTimeout(() => {
-                actionBtn.innerHTML = orig;
-                actionBtn.style.backgroundColor = "";
-                actionBtn.style.color = "";
-            }, 2200);
-        }
-    };
+    const copyCallback = () => showToast('🤖 Prompt Copiado!', 'success');
 
     navigator.clipboard.writeText(jsonStr).then(() => {
         copyCallback();
