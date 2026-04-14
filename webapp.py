@@ -16,6 +16,7 @@ import logging
 import os
 import sys
 import threading
+import time
 import uuid
 from pathlib import Path
 
@@ -44,6 +45,34 @@ logging.basicConfig(
 log = logging.getLogger("pncp.webapp")
 
 
+# ── Proxy helpers ─────────────────────────────────────────────────────────────
+_RETRYABLE_STATUSES = {429, 500, 502, 503, 504}
+_PROXY_TIMEOUT = 30
+_PROXY_TIMEOUT_ITEMS_COUNT = config.FETCH_TIMEOUT_ITEMS_COUNT
+
+
+def _proxy_get(url: str, params: dict | None = None, timeout: int = _PROXY_TIMEOUT) -> http_requests.Response:
+    """GET with simple exponential-backoff retry for transient 5xx errors."""
+    max_attempts = 3
+    backoff = 1.5
+    last_exc: Exception | None = None
+    for attempt in range(1, max_attempts + 1):
+        try:
+            resp = http_requests.get(url, params=params, timeout=timeout)
+            if resp.status_code not in _RETRYABLE_STATUSES:
+                return resp
+            last_exc = Exception(f"HTTP {resp.status_code}")
+        except (http_requests.exceptions.Timeout, http_requests.exceptions.ConnectionError) as exc:
+            last_exc = exc
+
+        if attempt < max_attempts:
+            wait = backoff * (2 ** (attempt - 1))
+            log.warning("Proxy attempt %d/%d failed for %s — retrying in %.1fs", attempt, max_attempts, url, wait)
+            time.sleep(wait)
+
+    raise last_exc  # type: ignore[misc]
+
+
 # ── Background extraction worker ────────────────────────────────────────────
 def _worker(job_id: str, params: dict) -> None:
     """Run extraction in a background thread, updating the job dict."""
@@ -52,6 +81,11 @@ def _worker(job_id: str, params: dict) -> None:
 
     def on_log(msg: str) -> None:
         job["logs"].append(msg)
+        # Track items verified directly (eliminates fragile regex in the frontend)
+        import re as _re
+        m = _re.search(r"Verificando (\d+) itens", msg)
+        if m:
+            job["items_verified"] = job.get("items_verified", 0) + int(m.group(1))
 
     def on_progress(current: int, total: int, label: str) -> None:
         job["progress"] = {"current": current, "total": total, "label": label}
@@ -86,6 +120,7 @@ def api_search():
         "results": [],
         "logs": [],
         "progress": None,
+        "items_verified": 0,
         "params": data,
     }
 
@@ -107,6 +142,7 @@ def api_job_status(job_id: str):
         "results": job["results"],
         "logs": job["logs"][-30:],
         "total_results": len(job["results"]),
+        "items_verified": job.get("items_verified", 0),
     })
 
 
@@ -130,7 +166,7 @@ def api_check_results():
     if not url or not url.startswith("https://pncp.gov.br/"):
         return jsonify({"has_data": False, "error": "URL inválida"}), 400
     try:
-        resp = http_requests.get(url, timeout=15)
+        resp = _proxy_get(url)
         if resp.status_code == 200:
             data = resp.json()
             has_data = isinstance(data, list) and len(data) > 0
@@ -147,9 +183,14 @@ def api_proxy():
     if not url or not url.startswith("https://pncp.gov.br/"):
         return jsonify({"error": "URL inválida"}), 400
     try:
-        # Pass forward all other query params except 'url'
+        # Use a shorter timeout for the /quantidade endpoint
+        timeout = (
+            _PROXY_TIMEOUT_ITEMS_COUNT
+            if url.endswith("/itens/quantidade")
+            else _PROXY_TIMEOUT
+        )
         params = {k: v for k, v in request.args.items() if k != "url"}
-        resp = http_requests.get(url, params=params, timeout=15)
+        resp = _proxy_get(url, params=params, timeout=timeout)
         return (resp.content, resp.status_code, {"Content-Type": resp.headers.get("Content-Type", "application/json")})
     except Exception as exc:
         return jsonify({"has_data": False, "error": str(exc)}), 500
