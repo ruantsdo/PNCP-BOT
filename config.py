@@ -23,12 +23,13 @@ DEFAULT_OUTPUT_DIR = "./output"
 
 # ── Rate Limiting & Retry ────────────────────────────────────────────────────
 RATE_LIMIT_DELAY = 1.0           # seconds between requests
-MAX_RETRIES = 3
-RETRY_BACKOFF_FACTOR = 2.0       # exponential: 2s, 4s, 8s
+MAX_RETRIES = 5
+RETRY_BACKOFF_FACTOR = 2.0       # exponential: 2s, 4s, 8s, 16s, 32s
 RETRY_STATUS_CODES = [429, 500, 502, 503, 504]
 
 # ── HTTP ─────────────────────────────────────────────────────────────────────
-REQUEST_TIMEOUT = 30             # seconds
+REQUEST_TIMEOUT = 45             # seconds
+FETCH_TIMEOUT_ITEMS_COUNT = 20   # timeout específico para o endpoint /quantidade (mais frágil)
 USER_AGENT = (
     "PNCP-Bot/1.0 (Automated public procurement data extraction; "
     "contact: pncpbot@example.com)"

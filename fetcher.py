@@ -32,6 +32,31 @@ class PNCPAPIError(Exception):
     """Generic API error."""
 
 
+# ── urllib3 Retry compat ─────────────────────────────────────────────────────
+def _build_retry(max_retries: int) -> Retry:
+    """
+    Build a urllib3 Retry object compatible with both old and new urllib3.
+
+    urllib3 < 1.26.0  uses ``method_whitelist``
+    urllib3 >= 1.26.0 uses ``allowed_methods``
+
+    Passing the wrong kwarg raises TypeError silently in some builds,
+    disabling retries entirely.  We detect the supported kwarg at runtime.
+    """
+    common = dict(
+        total=max_retries,
+        backoff_factor=config.RETRY_BACKOFF_FACTOR,
+        status_forcelist=config.RETRY_STATUS_CODES,
+        raise_on_status=False,
+    )
+    try:
+        # urllib3 >= 1.26.0
+        return Retry(**common, allowed_methods=["GET"])
+    except TypeError:
+        # urllib3 < 1.26.0 — fallback to legacy kwarg
+        return Retry(**common, method_whitelist=["GET"])
+
+
 # ── Fetcher ──────────────────────────────────────────────────────────────────
 class PNCPFetcher:
     """Stateful HTTP client for the PNCP platform."""
@@ -52,12 +77,7 @@ class PNCPFetcher:
             "Accept": "application/json",
         })
 
-        retry = Retry(
-            total=max_retries,
-            backoff_factor=config.RETRY_BACKOFF_FACTOR,
-            status_forcelist=config.RETRY_STATUS_CODES,
-            allowed_methods=["GET"],
-        )
+        retry = _build_retry(max_retries)
         adapter = HTTPAdapter(max_retries=retry)
         self.session.mount("https://", adapter)
         self.session.mount("http://", adapter)
@@ -68,12 +88,13 @@ class PNCPFetcher:
         if elapsed < self.rate_limit:
             time.sleep(self.rate_limit - elapsed)
 
-    def _get(self, url: str, params: dict | None = None) -> Any:
+    def _get(self, url: str, params: dict | None = None, timeout: int | None = None) -> Any:
         self._throttle()
         log.debug("GET %s  params=%s", url, params)
         self._last_request_time = time.time()
 
-        resp = self.session.get(url, params=params, timeout=self.timeout)
+        effective_timeout = timeout if timeout is not None else self.timeout
+        resp = self.session.get(url, params=params, timeout=effective_timeout)
 
         # CAPTCHA detection: non-JSON or specific redirect
         content_type = resp.headers.get("Content-Type", "")
@@ -120,12 +141,48 @@ class PNCPFetcher:
 
     # ── Items API ────────────────────────────────────────────────────────
     def get_items_count(self, cnpj: str, ano: int, seq: int) -> int:
-        """Return the number of items in a process."""
-        count = self._get(
-            config.ITEMS_COUNT_URL.format(cnpj=cnpj, ano=ano, seq=seq)
-        )
-        log.debug("Items count %s/%s/%s → %s", cnpj, ano, seq, count)
-        return int(count)
+        """
+        Return the number of items in a process.
+
+        Uses a shorter timeout and a manual exponential-backoff retry loop
+        as a second line of defence, since /quantidade is the most fragile
+        endpoint (frequent 502s) and the adapter-level Retry may not cover
+        all edge cases (e.g. timeouts before a response status is received).
+        """
+        url = config.ITEMS_COUNT_URL.format(cnpj=cnpj, ano=ano, seq=seq)
+        max_attempts = 4
+        backoff = 2.0  # seconds
+
+        last_exc: Exception | None = None
+        for attempt in range(1, max_attempts + 1):
+            try:
+                count = self._get(url, timeout=config.FETCH_TIMEOUT_ITEMS_COUNT)
+                log.debug("Items count %s/%s/%s → %s", cnpj, ano, seq, count)
+                return int(count)
+            except (
+                requests.exceptions.Timeout,
+                requests.exceptions.ConnectionError,
+                requests.exceptions.HTTPError,
+            ) as exc:
+                last_exc = exc
+                status_code = getattr(getattr(exc, "response", None), "status_code", None)
+                # Only retry on transient errors
+                if isinstance(exc, requests.exceptions.HTTPError) and status_code not in (
+                    429, 500, 502, 503, 504,
+                ):
+                    raise
+                if attempt < max_attempts:
+                    wait = backoff * (2 ** (attempt - 1))
+                    log.warning(
+                        "get_items_count attempt %d/%d failed (%s). Retrying in %.0fs…",
+                        attempt, max_attempts, exc, wait,
+                    )
+                    time.sleep(wait)
+
+        raise PNCPAPIError(
+            f"get_items_count failed after {max_attempts} attempts for "
+            f"{cnpj}/{ano}/{seq}: {last_exc}"
+        ) from last_exc
 
     def get_items(
         self, cnpj: str, ano: int, seq: int, page_size: int = 500,
