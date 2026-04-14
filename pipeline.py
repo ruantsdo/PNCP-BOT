@@ -9,8 +9,10 @@ from __future__ import annotations
 import logging
 from typing import Any, Callable
 
+import requests.exceptions
+
 import config
-from fetcher import PNCPFetcher, CaptchaDetected
+from fetcher import PNCPFetcher, CaptchaDetected, PNCPAPIError
 from parser import parse_keywords, matches_item
 from exporter import build_record, export_json, export_csv
 
@@ -174,6 +176,15 @@ def run_extraction(
         except CaptchaDetected as e:
             emit(f"⚠ CAPTCHA: {e}")
             break
+        except PNCPAPIError as exc:
+            emit(f"  ⚠ API indisponível após retentativas: {exc}")
+            continue
+        except requests.exceptions.Timeout:
+            emit(f"  ⚠ Timeout ao buscar itens de {pid} — processo ignorado.")
+            continue
+        except requests.exceptions.ConnectionError:
+            emit(f"  ⚠ Erro de conexão ao buscar itens de {pid} — processo ignorado.")
+            continue
         except Exception as exc:
             emit(f"  ⚠ Erro ao buscar itens: {exc}")
             continue
