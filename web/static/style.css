@@ -1001,3 +1001,66 @@ h1 {
     color: var(--green);
     font-weight: 600;
 }
+
+/* ── Toast Notifications ───────────────────────────────────────────────── */
+#toast-container {
+    position: fixed;
+    bottom: 28px;
+    right: 28px;
+    z-index: 9999;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 10px;
+    pointer-events: none;
+}
+
+.toast {
+    pointer-events: all;
+    min-width: 220px;
+    max-width: 360px;
+    padding: 12px 18px;
+    border-radius: var(--radius);
+    font-size: 0.84rem;
+    font-weight: 500;
+    font-family: var(--font);
+    color: var(--text);
+    background: rgba(22, 26, 40, 0.92);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid var(--border);
+    border-left-width: 4px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45);
+    cursor: pointer;
+    /* entrance: slide up from bottom */
+    opacity: 0;
+    transform: translateY(16px);
+    transition: opacity 0.25s ease, transform 0.25s ease;
+}
+
+.toast.toast-visible {
+    opacity: 1;
+    transform: translateY(0);
+}
+
+.toast.toast-hiding {
+    opacity: 0;
+    transform: translateY(8px);
+    transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.toast-success {
+    border-left-color: var(--green);
+}
+
+.toast-warn {
+    border-left-color: var(--yellow);
+}
+
+.toast-error {
+    border-left-color: var(--red);
+}
+
+.toast-info {
+    border-left-color: var(--accent);
+}
