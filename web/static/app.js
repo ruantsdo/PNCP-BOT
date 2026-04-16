@@ -37,6 +37,14 @@ function _removeToast(toast) {
 const _ORIGINAL_TITLE = document.title;
 let _titleFlipInterval = null;
 
+/**
+ * Guard flag: while a search/extraction is running, notifications are
+ * suppressed. Set to true at search start and false immediately before
+ * calling notifyCompletion, so the notification only fires after the
+ * full processing cycle — never mid-sweep.
+ */
+let _searchInProgress = false;
+
 function _requestNotificationPermission() {
     if ('Notification' in window && Notification.permission === 'default') {
         Notification.requestPermission();
@@ -44,6 +52,9 @@ function _requestNotificationPermission() {
 }
 
 function notifyCompletion(itemCount) {
+    // Guard: only fire when processing has actually finished
+    if (_searchInProgress) return;
+
     // 1. Web Notification
     if ('Notification' in window && Notification.permission === 'granted') {
         try {
@@ -55,7 +66,7 @@ function notifyCompletion(itemCount) {
     }
 
     // 2. document.title flip (visible when tab is in background)
-    if (_titleFlipInterval) clearInterval(_titleFlipInterval);
+    _stopTitleFlip();
     let flipping = true;
     _titleFlipInterval = setInterval(() => {
         document.title = flipping ? `✅ Processo Finalizado — PNCP Bot` : _ORIGINAL_TITLE;
@@ -64,9 +75,7 @@ function notifyCompletion(itemCount) {
 
     // Stop flipping when user focuses the tab
     const stopFlipping = () => {
-        clearInterval(_titleFlipInterval);
-        _titleFlipInterval = null;
-        document.title = _ORIGINAL_TITLE;
+        _stopTitleFlip();
         document.removeEventListener('visibilitychange', stopFlipping);
     };
     document.addEventListener('visibilitychange', () => {
@@ -74,6 +83,14 @@ function notifyCompletion(itemCount) {
     });
     // Also stop after 30 s regardless
     setTimeout(stopFlipping, 30_000);
+}
+
+function _stopTitleFlip() {
+    if (_titleFlipInterval) {
+        clearInterval(_titleFlipInterval);
+        _titleFlipInterval = null;
+    }
+    document.title = _ORIGINAL_TITLE;
 }
 
 // ── Unified log line colorizer ────────────────────────────────────────────────
@@ -160,6 +177,30 @@ function getPageNumber(item) {
 function startSearch(e) {
     e.preventDefault();
     isSearchStopped = false;
+    _searchInProgress = true;   // suppress notifications until processing is done
+
+    // ── Hard reset: flush all state/cache from any previous run ──────────
+    allResults = [];
+    readItems.clear();
+    activeSmartTags.clear();
+    Object.keys(checkCache).forEach(k => delete checkCache[k]);
+    if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+    currentJobId = null;
+    _stopTitleFlip();
+    // UI cleanup
+    hide("results-section");
+    document.getElementById("smart-tags").innerHTML = "";
+    document.getElementById("filter-text").value = "";
+    // Prompt Engine: clear AI main description
+    const aiDescEl = document.getElementById("ai-main-desc");
+    if (aiDescEl) aiDescEl.value = "";
+    // Filter pills: reset to "Todos"
+    currentFilter = "all";
+    document.querySelectorAll(".pill[data-filter]").forEach(b => {
+        b.classList.toggle("active", b.dataset.filter === "all");
+    });
+    // ─────────────────────────────────────────────────────────────────────
+
     const form = document.getElementById("search-form");
     const btn = document.getElementById("btn-search");
     const btnText = document.getElementById("btn-search-text");
@@ -275,14 +316,17 @@ async function startLocalSearch(params) {
         _stopTimer();
         const elapsed = _elapsedStr();
         if (isSearchStopped) {
+            _searchInProgress = false;
             finishSearchUI("⏹ Busca interrompida pelo usuário.", "error");
         } else {
             finishSearchUI(`✅ Concluído — ${allResults.length} itens encontrados.`, "done");
             showCompletionLog(_itemsVerified, elapsed);
+            _searchInProgress = false;  // unlock before firing notification
             notifyCompletion(allResults.length);
         }
     } catch (e) {
         _stopTimer();
+        _searchInProgress = false;
         console.error(e);
         logCB(`Erro fatal: ${e.message}`);
         finishSearchUI("⚠ Erro durante a extração local.", "error");
@@ -354,7 +398,10 @@ function pollJob(jobId) {
                 }
 
                 if (job.status === "done") {
+                    _searchInProgress = false;  // unlock before firing notification
                     notifyCompletion(job.total_results);
+                } else {
+                    _searchInProgress = false;
                 }
             }
         })
@@ -735,15 +782,54 @@ function exportApproved() {
 }
 
 function newSearch() {
+    // ── Hard reset: state & cache ─────────────────────────────────────────
     allResults = [];
     readItems.clear();
     activeSmartTags.clear();
     Object.keys(checkCache).forEach(k => delete checkCache[k]);
+
+    // Stop any in-flight poll / title-flip
+    if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+    _stopTitleFlip();
+    _stopTimer();
+    _searchInProgress = false;
+    isSearchStopped = false;
+    currentJobId = null;
+
+    // ── Hard reset: UI ────────────────────────────────────────────────────
     hide("results-section");
     hide("progress-section");
+
+    // Filter chips & text
     document.getElementById("smart-tags").innerHTML = "";
-    document.getElementById("search-form").reset();
     document.getElementById("filter-text").value = "";
+
+    // Search form fields
+    document.getElementById("search-form").reset();
+
+    // Log panel & progress bar
+    const logPanel = document.getElementById("log-panel");
+    if (logPanel) logPanel.innerHTML = "";
+    const progressBar = document.getElementById("progress-bar");
+    if (progressBar) progressBar.style.width = "0%";
+    const progressLabel = document.getElementById("progress-label");
+    if (progressLabel) progressLabel.textContent = "";
+
+    // Prompt Engine: clear AI main description
+    const aiDesc = document.getElementById("ai-main-desc");
+    if (aiDesc) aiDesc.value = "";
+
+    // Reset search button state
+    const btn = document.getElementById("btn-search");
+    const btnText = document.getElementById("btn-search-text");
+    if (btn) btn.disabled = false;
+    if (btnText) btnText.textContent = "🔍 Buscar Itens";
+
+    // Status panel
+    _itemsVerified = 0;
+    _timerStart = null;
+    _updateStatusPanel();
+
     window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
@@ -836,10 +922,10 @@ function generateAIPrompt() {
 
 // ── Tampermonkey Script ──────────────────────────────────────────────────
 const TAMPERMONKEY_SCRIPT = `// ==UserScript==
-// @name         Automação PNCP - Paginação e Clique
+// @name         Automação PNCP - Paginação e Clique (Virtual Scroll Fix)
 // @namespace    http://tampermonkey.net/
-// @version      1.7.3
-// @description  Suporte a SPA (Angular), trava de duplicidade e código otimizado
+// @version      1.8.0
+// @description  Suporte a SPA (Angular) com bypass de Virtual Scrolling
 // @match        *://pncp.gov.br/*
 // @grant        window.onurlchange
 // @author       github.com/ruantsdo
@@ -847,6 +933,14 @@ const TAMPERMONKEY_SCRIPT = `// ==UserScript==
 
 (function() {
     'use strict';
+
+    const style = document.createElement('style');
+    style.innerHTML = \`
+        .ng-dropdown-panel .ng-dropdown-panel-items .ng-option.ng-option-marked {
+            background-color: #e6f7ff !important; color: #005fcc !important; font-weight: bold;
+        }
+    \`;
+    document.head.appendChild(style);
 
     let executando = false;
     const esperar = ms => new Promise(res => setTimeout(res, ms));
@@ -861,13 +955,55 @@ const TAMPERMONKEY_SCRIPT = `// ==UserScript==
             const timer = setInterval(() => {
                 const el = document.querySelector(seletor);
                 if (el) {
-                    clearInterval(timer);
-                    resolve(el);
+                    clearInterval(timer); resolve(el);
                 } else if (Date.now() - inicio > timeout) {
-                    clearInterval(timer);
-                    reject(\`[Tampermonkey] Timeout: \${seletor}\`);
+                    clearInterval(timer); reject(\`[Tampermonkey] Timeout: \${seletor}\`);
                 }
-            }, 1000);
+            }, 500);
+        });
+    };
+
+    const aguardarPainelAberto = (timeout = 5000) => {
+        return new Promise((resolve, reject) => {
+            const inicio = Date.now();
+            const timer = setInterval(() => {
+                const painel = document.querySelector('.ng-dropdown-panel-items');
+                if (painel) {
+                    clearInterval(timer); resolve(painel);
+                } else if (Date.now() - inicio > timeout) {
+                    clearInterval(timer); reject(\`[Tampermonkey] Painel do ng-select não abriu.\`);
+                }
+            }, 100);
+        });
+    };
+
+    const varrerEClicarItemPainel = (painel, textoBuscado) => {
+        return new Promise((resolve) => {
+            let alturaAnterior = -1;
+
+            const intervaloScroll = setInterval(() => {
+                const opcao = Array.from(painel.querySelectorAll('.ng-option'))
+                    .find(opt => opt.innerText.trim() === String(textoBuscado));
+
+                if (opcao) {
+                    clearInterval(intervaloScroll);
+                    opcao.scrollIntoView({ behavior: 'auto', block: 'center' });
+                    setTimeout(() => { opcao.click(); resolve(true); }, 50);
+                    return;
+                }
+
+                painel.scrollTop += painel.clientHeight;
+
+                if (painel.scrollTop === alturaAnterior) {
+                    clearInterval(intervaloScroll);
+                    console.warn(\`[Tampermonkey] Opção '\${textoBuscado}' não existe na lista.\`);
+                    document.body.click(); 
+                    resolve(false);
+                }
+                
+                alturaAnterior = painel.scrollTop;
+
+            }, 150);
         });
     };
 
@@ -876,19 +1012,20 @@ const TAMPERMONKEY_SCRIPT = `// ==UserScript==
         if (selects.length <= selectIndex) return false;
 
         simularClique(selects[selectIndex].querySelector('.ng-select-container'));
-        await esperar(1000);
 
-        const opcao = Array.from(document.querySelectorAll('.ng-option'))
-            .find(opt => opt.innerText.trim() === String(textoBuscado));
-
-        if (opcao) opcao.click();
-        return !!opcao;
+        try {
+            const painel = await aguardarPainelAberto();
+            return await varrerEClicarItemPainel(painel, textoBuscado);
+        } catch (erro) {
+            console.error(erro);
+            return false;
+        }
     };
 
     const alterarPaginacao = async (pagina) => {
         console.log(\`[Tampermonkey] Ajustando paginação\`);
         await selecionarOpcao(0, '50');
-        await esperar(2000);
+        await esperar(500);
         await selecionarOpcao(1, pagina);
     };
 
@@ -911,8 +1048,10 @@ const TAMPERMONKEY_SCRIPT = `// ==UserScript==
                         }
                     }
                 }
+
                 if (Date.now() - inicio > timeout) {
                     clearInterval(timer);
+                    console.warn(\`[Tampermonkey] Item \${idItem} não encontrado\`);
                     reject(false);
                 }
             }, 1000);
@@ -928,8 +1067,11 @@ const TAMPERMONKEY_SCRIPT = `// ==UserScript==
 
         if (autoPage && autoItem) {
             executando = true;
+            console.log("[Tampermonkey] Iniciando automação");
+
             window.history.replaceState({}, document.title, window.location.pathname);
-            await esperar(3000);
+
+            await esperar(1500); 
 
             try {
                 await aguardarElemento('ng-select');
@@ -944,6 +1086,7 @@ const TAMPERMONKEY_SCRIPT = `// ==UserScript==
     };
 
     verificarEExecutar();
+
     if (window.onurlchange === null) {
         window.addEventListener('urlchange', verificarEExecutar);
     }
