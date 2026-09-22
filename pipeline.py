@@ -31,7 +31,7 @@ class ExtractionParams:
     __slots__ = (
         "keywords", "uf", "date_from", "date_to", "contratante",
         "max_processes", "fuzzy_threshold", "rate_limit", "output_dir",
-        "screenshots", "status",
+        "status",
     )
 
     def __init__(
@@ -45,7 +45,6 @@ class ExtractionParams:
         fuzzy_threshold: int = config.DEFAULT_FUZZY_THRESHOLD,
         rate_limit: float = config.RATE_LIMIT_DELAY,
         output_dir: str = config.DEFAULT_OUTPUT_DIR,
-        screenshots: bool = False,
         status: str | None = None,
     ):
         self.keywords = keywords
@@ -57,7 +56,6 @@ class ExtractionParams:
         self.fuzzy_threshold = fuzzy_threshold
         self.rate_limit = rate_limit
         self.output_dir = output_dir
-        self.screenshots = screenshots
         self.status = status
 
     @classmethod
@@ -73,7 +71,6 @@ class ExtractionParams:
             fuzzy_threshold=int(data.get("fuzzy_threshold", config.DEFAULT_FUZZY_THRESHOLD)),
             rate_limit=float(data.get("rate_limit", config.RATE_LIMIT_DELAY)),
             output_dir=data.get("output_dir", config.DEFAULT_OUTPUT_DIR),
-            screenshots=bool(data.get("screenshots", False)),
             status=data.get("status") or None,
         )
 
@@ -206,14 +203,6 @@ def run_extraction(
         emit(f"Exportados {len(records)} itens → {params.output_dir}")
     else:
         emit("Nenhum item encontrado com os critérios informados.")
-
-    # 5. Screenshots (optional)
-    if params.screenshots and records:
-        from exporter import capture_screenshots
-        emit("Capturando screenshots…")
-        capture_screenshots(records, params.output_dir)
-        export_json(records, params.output_dir)
-        export_csv(records, params.output_dir)
 
     emit(f"Concluído! {len(records)} itens encontrados.")
     return ExtractionResult(records)

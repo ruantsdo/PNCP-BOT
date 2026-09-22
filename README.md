@@ -33,8 +33,8 @@ py cli.py -k "cabo" --uf BA --max-processes 10
 # Múltiplos termos com qualificadores
 py cli.py -k "cabo [vermelho], tomada [20a]" --uf BA
 
-# Com screenshots e filtros de data
-py cli.py -k "cabo" --uf BA --date-from 2026-01-01 --screenshots -o ./output
+# Com filtros de data
+py cli.py -k "cabo" --uf BA --date-from 2026-01-01 -o ./output
 ```
 
 ### Opções CLI
@@ -50,7 +50,6 @@ py cli.py -k "cabo" --uf BA --date-from 2026-01-01 --screenshots -o ./output
 | `--fuzzy-threshold` | Limiar fuzzy 0–100 | 80 |
 | `--rate-limit` | Segundos entre requisições | 1.0 |
 | `-o` / `--output-dir` | Diretório de saída | `./output` |
-| `--screenshots` | Captura screenshots | — |
 | `-v` / `--verbose` | Debug logging | — |
 
 ## Saída
@@ -59,8 +58,7 @@ py cli.py -k "cabo" --uf BA --date-from 2026-01-01 --screenshots -o ./output
 output/
 ├── results.json
 ├── results.csv
-├── pncp_bot.log
-└── screenshots/   (se --screenshots)
+└── pncp_bot.log
 ```
 
 ## Qualificadores
@@ -87,7 +85,7 @@ py -m pytest tests/test_integration.py -v -s
 | `config.py` | URLs, constantes, configurações |
 | `fetcher.py` | Cliente HTTP com retry/rate-limit/CAPTCHA |
 | `parser.py` | Normalização, parsing de keywords, matching |
-| `exporter.py` | Export JSON/CSV, screenshots |
+| `exporter.py` | Export JSON/CSV |
 | `pipeline.py` | Lógica de extração compartilhada (CLI + web) |
 | `cli.py` | Interface de linha de comando |
 | `webapp.py` | Interface web Flask |

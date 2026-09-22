@@ -10,10 +10,10 @@ py cli.py --keywords "cabo" --uf BA --max-processes 10
 # Multiple keywords with qualifiers:
 py cli.py --keywords "cabo [vermelho], tomada [20a]" --uf BA
 
-# With date range and screenshots:
+# With date range:
 py cli.py --keywords "cabo" --uf BA \
     --date-from 2026-01-01 --date-to 2026-02-14 \
-    --screenshots --output-dir ./output
+    --output-dir ./output
 
 # For the full web interface, use:
 #   py webapp.py
@@ -85,7 +85,6 @@ def main() -> None:
         "--output-dir", "-o", type=str, default=config.DEFAULT_OUTPUT_DIR,
         help=f"Output directory (default {config.DEFAULT_OUTPUT_DIR})",
     )
-    ap.add_argument("--screenshots", action="store_true", help="Capture screenshots per matched item")
     ap.add_argument("--verbose", "-v", action="store_true", help="Debug logging")
 
     args = ap.parse_args()
@@ -106,7 +105,6 @@ def main() -> None:
         fuzzy_threshold=args.fuzzy_threshold,
         rate_limit=args.rate_limit,
         output_dir=args.output_dir,
-        screenshots=args.screenshots,
     )
 
     result = run_extraction(params)
