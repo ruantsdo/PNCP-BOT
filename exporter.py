@@ -1,7 +1,7 @@
 """
 PNCP Bot — Exporter module.
 
-Export matched items to JSON / CSV and capture screenshots via Playwright.
+Export matched items to JSON / CSV.
 """
 
 from __future__ import annotations
@@ -25,10 +25,10 @@ FIELDS = [
     "valor_unitario",
     "valor_total",
     "fornecedor",
+    "tem_resultado",
     "contratante",
     "data_publicacao",
     "source_url",
-    "capture_path",
     "matched_keywords",
     "match_quality",     # exact / compound / partial
     "status",           # for review UI: pending / approved / rejected
@@ -40,7 +40,6 @@ def build_record(
     process: dict,
     item: dict,
     matched_keywords: list,
-    capture_path: str = "",
     item_index: int = 0,
 ) -> dict[str, Any]:
     """Merge process-level and item-level data into a flat output record."""
@@ -54,6 +53,9 @@ def build_record(
     #   partial  = no qualifiers defined (base term match only)
     quality = _determine_quality(matched_keywords)
 
+    tem_resultado = bool(item.get("temResultado", False))
+    initial_status = "to_analyze" if tem_resultado else "pending"
+
     return {
         "process_id": process.get("numero_controle_pncp", ""),
         "item_id": item.get("numeroItem", ""),
@@ -64,13 +66,13 @@ def build_record(
         "valor_unitario": item.get("valorUnitarioEstimado", 0),
         "valor_total": item.get("valorTotal", 0),
         "fornecedor": _extract_fornecedor(item),
+        "tem_resultado": tem_resultado,
         "contratante": process.get("orgao_nome", ""),
         "data_publicacao": process.get("data_publicacao_pncp", ""),
         "source_url": f"https://pncp.gov.br/app/editais/{cnpj}/{ano}/{seq}",
-        "capture_path": capture_path,
         "matched_keywords": ", ".join(str(k) for k in matched_keywords),
         "match_quality": quality,
-        "status": "pending",
+        "status": initial_status,
     }
 
 
@@ -111,47 +113,3 @@ def export_csv(records: list[dict], output_dir: str) -> str:
         writer.writerows(records)
     log.info("Exported %d records → %s", len(records), path)
     return str(path)
-
-
-# ── Screenshot capture ───────────────────────────────────────────────────────
-def capture_screenshots(
-    records: list[dict],
-    output_dir: str,
-) -> None:
-    """
-    Open each process page in a headless browser and take a screenshot.
-    Updates each record's ``capture_path`` in-place.
-    """
-    # Lazy-import so the rest of the tool works without Playwright installed
-    try:
-        from playwright.sync_api import sync_playwright
-    except ImportError:
-        log.warning("Playwright not installed — skipping screenshots.")
-        return
-
-    shots_dir = Path(output_dir) / "screenshots"
-    shots_dir.mkdir(parents=True, exist_ok=True)
-
-    with sync_playwright() as pw:
-        browser = pw.chromium.launch(headless=True)
-        page = browser.new_page(viewport={"width": 1280, "height": 900})
-
-        for rec in records:
-            url = rec["source_url"]
-            pid = rec["process_id"].replace("/", "_").replace("-", "_")
-            iid = rec["item_id"]
-            kw = rec["matched_keywords"].split(",")[0].strip().replace(" ", "_")
-            filename = f"{pid}_{iid}_{kw}.png"
-            filepath = shots_dir / filename
-
-            try:
-                page.goto(url, wait_until="networkidle", timeout=30000)
-                page.wait_for_timeout(2000)  # extra settle time
-                page.screenshot(path=str(filepath), full_page=True)
-                rec["capture_path"] = str(filepath)
-                log.info("Screenshot saved: %s", filepath)
-            except Exception as exc:
-                log.warning("Screenshot failed for %s: %s", url, exc)
-                rec["capture_path"] = ""
-
-        browser.close()

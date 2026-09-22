@@ -56,6 +56,13 @@ class TestBuildRecord:
         assert sample_record["valor_unitario"] == 1.50
         assert sample_record["contratante"] == "MUNICIPIO TESTE"
         assert sample_record["status"] == "pending"
+        assert sample_record["tem_resultado"] is False
+
+    def test_status_with_resultado(self, sample_process, sample_item):
+        sample_item_com_res = dict(sample_item, temResultado=True)
+        rec = build_record(sample_process, sample_item_com_res, [])
+        assert rec["tem_resultado"] is True
+        assert rec["status"] == "to_analyze"
 
     def test_source_url(self, sample_record):
         assert "pncp.gov.br" in sample_record["source_url"]

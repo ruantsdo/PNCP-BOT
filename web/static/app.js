@@ -2,6 +2,7 @@
 
 let allResults = [];
 let currentFilter = "all";
+let currentResultFilter = "all"; // 'all' | 'with_result' | 'without_result'
 let currentJobId = null;
 let pollTimer = null;
 let isSearchStopped = false;
@@ -199,6 +200,10 @@ function startSearch(e) {
     document.querySelectorAll(".pill[data-filter]").forEach(b => {
         b.classList.toggle("active", b.dataset.filter === "all");
     });
+    currentResultFilter = "all";
+    document.querySelectorAll(".pill[data-result-filter]").forEach(b => {
+        b.classList.toggle("active", b.dataset.resultFilter === "all");
+    });
     // ─────────────────────────────────────────────────────────────────────
 
     const form = document.getElementById("search-form");
@@ -394,6 +399,9 @@ function pollJob(jobId) {
 
                 if (job.results && job.results.length > 0) {
                     allResults = job.results;
+                    if (job.status === "done") {
+                        setFilter("to_analyze");
+                    }
                     showResults();
                 }
 
@@ -448,6 +456,13 @@ function closeAutoModal() {
     document.getElementById("auto-modal").classList.add("hidden");
 }
 
+function setFilter(filter) {
+    currentFilter = filter;
+    document.querySelectorAll(".pill[data-filter]").forEach(b => {
+        b.classList.toggle("active", b.dataset.filter === filter);
+    });
+}
+
 function finishSearchUI(msg, status = "done") {
     const btn = document.getElementById("btn-search");
     const btnText = document.getElementById("btn-search-text");
@@ -455,7 +470,12 @@ function finishSearchUI(msg, status = "done") {
     btnText.textContent = "🔍 Buscar Itens";
     document.getElementById("progress-bar").style.width = "100%";
     document.getElementById("progress-label").textContent = msg;
-    if (allResults.length > 0) showResults();
+    if (allResults.length > 0) {
+        if (status === "done") {
+            setFilter("to_analyze");
+        }
+        showResults();
+    }
 }
 
 // ── Results display ─────────────────────────────────────────────────────
@@ -470,12 +490,18 @@ function updateStats() {
     const to_analyze = allResults.filter(r => r.status === "to_analyze").length;
     const approved   = allResults.filter(r => r.status === "approved").length;
     const rejected   = allResults.filter(r => r.status === "rejected").length;
+    const withResult = allResults.filter(r => {
+        const k = buildCheckKey(r);
+        const cs = checkCache[k];
+        return (cs && cs.status === "ok") || (r.tem_resultado && (!cs || cs.status !== "empty"));
+    }).length;
 
     document.getElementById("results-stats").innerHTML = `
     <span><span class="dot dot-pending"></span> ${pending} pendentes</span>
     <span><span class="dot dot-to_analyze"></span> ${to_analyze} analisar</span>
     <span><span class="dot dot-approved"></span> ${approved} aprovados</span>
     <span><span class="dot dot-rejected"></span> ${rejected} rejeitados</span>
+    <span><span class="dot dot-has-result"></span> ${withResult} com detalhes</span>
     <span>Total: ${allResults.length}</span>
   `;
 }
@@ -486,6 +512,16 @@ function renderCards() {
 
     const filtered = allResults.filter(item => {
         if (currentFilter !== "all" && item.status !== currentFilter) return false;
+
+        // Filtro fixo de resultado extra
+        const checkKey = buildCheckKey(item);
+        const checkState = checkCache[checkKey];
+        const hasResult = (checkState && checkState.status === "ok") ||
+                          (Boolean(item.tem_resultado) && (!checkState || checkState.status !== "empty"));
+
+        if (currentResultFilter === "with_result" && !hasResult) return false;
+        if (currentResultFilter === "without_result" && hasResult) return false;
+
         if (search && !item.descricao.toLowerCase().includes(search)) return false;
 
         // Smart tag filter — item must contain ALL active tags (word-boundary)
@@ -531,24 +567,58 @@ function renderCards() {
         // Feature 3: item label
         const itemLabel = `${escapeHtml(item.process_id)} / Item #${item.item_id}`;
 
-        // Feature 5: Check results button state
+        // Feature 5: Check results button state & tags
         const checkKey = buildCheckKey(item);
         const checkState = checkCache[checkKey];
+        const hasFirstPassResult = Boolean(item.tem_resultado);
+
         let checkBtnClass = "card-btn card-btn-check";
         let checkBtnLabel = "🔍 Verificar";
-        let checkTooltip = "";
+        let checkTooltip = '<span class="check-tooltip">Sem resultado prévio. Clique para varrer na API.</span>';
+
         if (checkState) {
             if (checkState.status === "loading") {
                 checkBtnClass += " check-loading";
                 checkBtnLabel = "⏳ Verificando…";
+                checkTooltip = '<span class="check-tooltip">Consultando API de resultados…</span>';
             } else if (checkState.status === "ok") {
                 checkBtnClass += " check-ok";
-                checkBtnLabel = "✓ Dados disponíveis";
-                checkTooltip = '<span class="check-tooltip">Dados adicionais disponíveis</span>';
+                checkBtnLabel = "✓ Detalhes carregados";
+                let tooltipText = "Detalhes extras confirmados";
+                if (checkState.data && checkState.data.length > 0) {
+                    const first = checkState.data[0];
+                    const nome = first.nomeRazaoSocialFornecedor || "";
+                    const val = first.valorTotalHomologado ? ` — R$ ${Number(first.valorTotalHomologado).toLocaleString('pt-BR', {minimumFractionDigits: 2})}` : "";
+                    if (nome) tooltipText = `${nome}${val}`;
+                }
+                checkTooltip = `<span class="check-tooltip">${escapeHtml(tooltipText)}</span>`;
             } else {
                 checkBtnClass += " check-empty";
-                checkBtnLabel = "— Sem resultados";
-                checkTooltip = '<span class="check-tooltip">Sem dados adicionais</span>';
+                checkBtnLabel = "❌ Detalhes indisponíveis";
+                checkTooltip = '<span class="check-tooltip">Sem dados adicionais na API. Clique se desejar reconsultar.</span>';
+            }
+        } else if (hasFirstPassResult) {
+            // Detalhes extras identificados logo na 1ª filtragem
+            checkBtnClass += " check-has-result";
+            checkBtnLabel = "✅ Detalhes disponíveis";
+            checkTooltip = '<span class="check-tooltip">Detalhes disponíveis no PNCP! Clique para carregar os dados do fornecedor.</span>';
+        }
+
+        // Badge de resultado extra no card
+        const hasResultActive = (checkState && checkState.status === "ok") ||
+                                (hasFirstPassResult && (!checkState || checkState.status !== "empty"));
+        const resultBadge = hasResultActive
+            ? '<span class="badge badge-has-result" title="O PNCP possui detalhes extras para este item">✅ Detalhes disponíveis</span>'
+            : '';
+
+        // Tag de fornecedor se já disponível
+        let fornecedorTag = "";
+        if (item.fornecedor && item.fornecedor !== "N/A" && item.fornecedor !== "(resultado disponível)") {
+            fornecedorTag = `<span class="tag tag-fornecedor" title="Fornecedor Vencedor">👤 ${escapeHtml(item.fornecedor)}</span>`;
+        } else if (checkState && checkState.status === "ok" && checkState.data && checkState.data.length > 0) {
+            const fornec = checkState.data[0].nomeRazaoSocialFornecedor;
+            if (fornec) {
+                fornecedorTag = `<span class="tag tag-fornecedor" title="Fornecedor Vencedor">👤 ${escapeHtml(fornec)}</span>`;
             }
         }
 
@@ -562,6 +632,7 @@ function renderCards() {
           <div style="display:flex;gap:4px;align-items:center;flex-shrink:0">
             <span class="badge ${badgeClass}">${badgeText}</span>
             ${readBadge}
+            ${resultBadge}
           </div>
         </div>
         <p class="card-desc" title="${escapeHtml(item.descricao)}">${escapeHtml(item.descricao)}</p>
@@ -573,6 +644,7 @@ function renderCards() {
         </div>
         <div class="card-tags">
           <span class="tag tag-keyword">🔑 ${escapeHtml(item.matched_keywords)}</span>
+          ${fornecedorTag}
         </div>
         <p class="card-org">${escapeHtml(item.contratante)}</p>
         <div class="card-actions">
@@ -667,7 +739,8 @@ function checkResults(idx) {
     const item = allResults[idx];
     const checkKey = buildCheckKey(item);
 
-    if (checkCache[checkKey]) return;
+    // Se já estiver em loading, previne duplo clique
+    if (checkCache[checkKey] && checkCache[checkKey].status === "loading") return;
 
     const parts = item.source_url.split("/");
     const seq  = parts.pop();
@@ -682,30 +755,39 @@ function checkResults(idx) {
     fetch(`/api/check-results?url=${encodeURIComponent(apiUrl)}`)
         .then(r => r.json())
         .then(data => {
+            const hasData = Boolean(data.has_data && data.data && data.data.length > 0);
             checkCache[checkKey] = {
-                status: data.has_data ? "ok" : "empty",
+                status: hasData ? "ok" : "empty",
                 data: data.data || null,
             };
 
-            if (!data.has_data) {
+            if (hasData) {
+                item.tem_resultado = true;
+                item.status = "to_analyze";
+                if (data.data[0] && data.data[0].nomeRazaoSocialFornecedor) {
+                    item.fornecedor = data.data[0].nomeRazaoSocialFornecedor;
+                }
+                showToast(`✓ Detalhes carregados para Item #${item.item_id}`, 'success');
+                updateStats();
+                renderCards();
+            } else {
+                // Exclusão automática retornada se verificado manualmente com o botão
                 setStatus(idx, 'rejected');
-                showToast('✗ Item movido para Recusado (sem dados extras)', 'warn');
-                return;
+                showToast(`✗ Item #${item.item_id} movido para Recusado (sem detalhes extras)`, 'warn');
             }
-
-            renderCards();
         })
         .catch(() => {
             const logPanel = document.getElementById('log-panel');
             if (logPanel) {
                 const div = document.createElement('div');
                 div.className = 'log-error';
-                div.textContent = `Erro no processamento de ${item.process_id}`;
+                div.textContent = `Erro ao verificar resultados de ${item.process_id} Item #${item.item_id}`;
                 logPanel.appendChild(div);
                 logPanel.scrollTop = logPanel.scrollHeight;
             }
             checkCache[checkKey] = { status: 'empty' };
-            renderCards();
+            setStatus(idx, 'rejected');
+            showToast(`✗ Erro na consulta — Item #${item.item_id} movido para Recusado`, 'warn');
         });
 }
 
@@ -803,6 +885,14 @@ function newSearch() {
     // Filter chips & text
     document.getElementById("smart-tags").innerHTML = "";
     document.getElementById("filter-text").value = "";
+    currentFilter = "all";
+    document.querySelectorAll(".pill[data-filter]").forEach(b => {
+        b.classList.toggle("active", b.dataset.filter === "all");
+    });
+    currentResultFilter = "all";
+    document.querySelectorAll(".pill[data-result-filter]").forEach(b => {
+        b.classList.toggle("active", b.dataset.resultFilter === "all");
+    });
 
     // Search form fields
     document.getElementById("search-form").reset();
@@ -854,12 +944,22 @@ function escapeHtml(text) {
 function show(id) { document.getElementById(id).classList.remove("hidden"); }
 function hide(id) { document.getElementById(id).classList.add("hidden"); }
 
-// ── Filter pills ────────────────────────────────────────────────────────
+// ── Filter pills: Status ────────────────────────────────────────────────
 document.querySelectorAll(".pill[data-filter]").forEach(btn => {
     btn.addEventListener("click", () => {
         document.querySelectorAll(".pill[data-filter]").forEach(b => b.classList.remove("active"));
         btn.classList.add("active");
         currentFilter = btn.dataset.filter;
+        renderCards();
+    });
+});
+
+// ── Filter pills: Resultado Extra ───────────────────────────────────────
+document.querySelectorAll(".pill[data-result-filter]").forEach(btn => {
+    btn.addEventListener("click", () => {
+        document.querySelectorAll(".pill[data-result-filter]").forEach(b => b.classList.remove("active"));
+        btn.classList.add("active");
+        currentResultFilter = btn.dataset.resultFilter;
         renderCards();
     });
 });

@@ -304,17 +304,38 @@ h1 {
     background: var(--orange);
 }
 
+.dot-has-result {
+    background: #38bdf8;
+}
+
 .results-actions {
     display: flex;
     align-items: center;
     gap: 10px;
-    flex-wrap: nowrap;
+    flex-wrap: wrap;
 }
 
 .filter-pills {
     display: flex;
     gap: 4px;
     flex-shrink: 0;
+}
+
+.filter-results-pills {
+    border-left: 1px solid var(--border);
+    padding-left: 10px;
+}
+
+.pill.pill-with-result.active {
+    background: rgba(56, 189, 248, 0.16);
+    border-color: #38bdf8;
+    color: #38bdf8;
+}
+
+.pill.pill-no-result.active {
+    background: rgba(239, 68, 68, 0.16);
+    border-color: #ef4444;
+    color: #f87171;
 }
 
 .pill {
@@ -468,6 +489,18 @@ h1 {
 .badge-rejected {
     background: var(--red-bg);
     color: var(--red);
+}
+
+.badge-has-result {
+    background: rgba(56, 189, 248, 0.15);
+    color: #38bdf8;
+    border: 1px solid rgba(56, 189, 248, 0.35);
+}
+
+.tag-fornecedor {
+    background: rgba(168, 85, 247, 0.15);
+    color: #d8b4fe;
+    border-color: rgba(168, 85, 247, 0.3);
 }
 
 .card-desc {
@@ -689,6 +722,19 @@ h1 {
     color: var(--green);
     border-color: var(--green);
     background: var(--green-bg);
+}
+
+.card-btn-check.check-has-result {
+    color: #38bdf8;
+    border-color: #38bdf8;
+    background: rgba(56, 189, 248, 0.12);
+    font-weight: 600;
+}
+
+.card-btn-check.check-has-result:hover {
+    background: rgba(56, 189, 248, 0.22);
+    border-color: #7dd3fc;
+    color: #e0f2fe;
 }
 
 .card-btn-check.check-empty {

@@ -385,10 +385,12 @@ async function runLocalExtraction(params, logCallback, progressCallback) {
                         unidade: item.unidadeMedida,
                         valor_unitario: item.valorUnitarioEstimado,
                         valor_total: item.valorTotal,
+                        fornecedor: item.temResultado ? "(resultado disponível)" : "N/A",
+                        tem_resultado: Boolean(item.temResultado),
                         data_publicacao: proc.data_publicacao_pncp,
                         contratante: proc.orgao_nome,
                         source_url: `https://pncp.gov.br/app/editais/${cnpj}/${ano}/${seq}`,
-                        status: "pending",
+                        status: item.temResultado ? "to_analyze" : "pending",
                         ...bestMatch
                     };
                     allResults.push(rec);
