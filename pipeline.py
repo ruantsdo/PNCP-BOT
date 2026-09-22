@@ -97,6 +97,8 @@ def run_extraction(
     params: ExtractionParams,
     on_log: LogCallback | None = None,
     on_progress: ProgressCallback | None = None,
+    is_cancelled: Callable[[], bool] | None = None,
+    on_record: Callable[[dict[str, Any]], None] | None = None,
 ) -> ExtractionResult:
     """
     Execute the full extraction pipeline.
@@ -109,6 +111,10 @@ def run_extraction(
         ``on_log(message)`` — called for each log line.
     on_progress : callable, optional
         ``on_progress(current, total, label)`` — called for progress updates.
+    is_cancelled : callable, optional
+        ``is_cancelled()`` — returns True if cancellation has been requested.
+    on_record : callable, optional
+        ``on_record(rec)`` — called immediately when each matching item record is built.
 
     Returns
     -------
@@ -126,6 +132,10 @@ def run_extraction(
         emit("Nenhuma palavra-chave válida.")
         return ExtractionResult([], status="error", message="Nenhuma palavra-chave válida.")
 
+    if is_cancelled and is_cancelled():
+        emit("⏹ Extração cancelada pelo usuário.")
+        return ExtractionResult([], status="cancelled", message="Cancelado pelo usuário.")
+
     base_terms = list({kw.term for kw in parsed})
     emit(f"Termos de busca: {base_terms}")
 
@@ -142,10 +152,15 @@ def run_extraction(
             contratante=params.contratante,
             status=params.status,
             max_processes=params.max_processes,
+            is_cancelled=is_cancelled,
         )
     except CaptchaDetected as e:
         emit(f"⚠ CAPTCHA detectado: {e}")
         return ExtractionResult([], status="captcha", message=str(e))
+
+    if is_cancelled and is_cancelled():
+        emit("⏹ Busca interrompida pelo usuário durante descoberta de processos.")
+        return ExtractionResult([], status="cancelled", message="Cancelado pelo usuário.")
 
     emit(f"Encontrados {len(processes)} processos.")
 
@@ -156,6 +171,10 @@ def run_extraction(
     records: list[dict[str, Any]] = []
 
     for i, proc in enumerate(processes, 1):
+        if is_cancelled and is_cancelled():
+            emit(f"⏹ Busca interrompida pelo usuário após verificar {i - 1} de {len(processes)} processos.")
+            break
+
         pid = proc.get("numero_controle_pncp", "?")
         item_url = proc.get("item_url", "")
 
@@ -169,7 +188,7 @@ def run_extraction(
             continue
 
         try:
-            items = fetcher.get_items(cnpj, ano, seq)
+            items = fetcher.get_items(cnpj, ano, seq, is_cancelled=is_cancelled)
         except CaptchaDetected as e:
             emit(f"⚠ CAPTCHA: {e}")
             break
@@ -186,17 +205,34 @@ def run_extraction(
             emit(f"  ⚠ Erro ao buscar itens: {exc}")
             continue
 
+        if is_cancelled and is_cancelled():
+            emit(f"⏹ Busca interrompida pelo usuário no Processo {pid}.")
+            break
+
         emit(f"[{i}/{len(processes)}] Verificando {len(items)} itens do Processo {pid}")
 
         for item_index, item in enumerate(items):
+            if is_cancelled and is_cancelled():
+                break
             desc = item.get("descricao", "")
             matched = matches_item(desc, parsed, fuzzy_threshold=params.fuzzy_threshold)
             if matched:
                 rec = build_record(proc, item, matched, item_index=item_index)
                 records.append(rec)
+                if on_record:
+                    on_record(rec)
                 emit(f"  ✓ Item #{item.get('numeroItem')} → {desc[:60]}")
 
-    # 4. Export
+    # 4. Check if cancelled
+    if is_cancelled and is_cancelled():
+        if records:
+            export_json(records, params.output_dir)
+            export_csv(records, params.output_dir)
+            emit(f"Exportados {len(records)} itens retidos → {params.output_dir}")
+        emit(f"⏹ Busca finalizada com cancelamento. {len(records)} itens mantidos.")
+        return ExtractionResult(records, status="cancelled", message="Busca cancelada pelo usuário.")
+
+    # 5. Export
     if records:
         export_json(records, params.output_dir)
         export_csv(records, params.output_dir)

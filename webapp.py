@@ -74,7 +74,7 @@ def _proxy_get(url: str, params: dict | None = None, timeout: int = _PROXY_TIMEO
 
 
 # ── Background extraction worker ────────────────────────────────────────────
-def _worker(job_id: str, params: dict) -> None:
+def _worker(job_id: str, params: dict, cancel_event: threading.Event) -> None:
     """Run extraction in a background thread, updating the job dict."""
     job = jobs[job_id]
     job["status"] = "running"
@@ -90,11 +90,20 @@ def _worker(job_id: str, params: dict) -> None:
     def on_progress(current: int, total: int, label: str) -> None:
         job["progress"] = {"current": current, "total": total, "label": label}
 
+    def on_record(record: dict) -> None:
+        job["results"].append(record)
+
     extraction_params = ExtractionParams.from_dict(params)
     extraction_params.output_dir = str(OUTPUT_DIR)  # always use server output dir
 
     try:
-        result = run_extraction(extraction_params, on_log=on_log, on_progress=on_progress)
+        result = run_extraction(
+            extraction_params,
+            on_log=on_log,
+            on_progress=on_progress,
+            is_cancelled=cancel_event.is_set,
+            on_record=on_record,
+        )
         job["results"] = result.records
         job["status"] = result.status
     except Exception as exc:
@@ -113,6 +122,7 @@ def index():
 def api_search():
     data = request.json or {}
     job_id = str(uuid.uuid4())[:8]
+    cancel_event = threading.Event()
 
     jobs[job_id] = {
         "id": job_id,
@@ -122,9 +132,10 @@ def api_search():
         "progress": None,
         "items_verified": 0,
         "params": data,
+        "_cancel_event": cancel_event,
     }
 
-    thread = threading.Thread(target=_worker, args=(job_id, data), daemon=True)
+    thread = threading.Thread(target=_worker, args=(job_id, data, cancel_event), daemon=True)
     thread.start()
 
     return jsonify({"job_id": job_id})
@@ -142,6 +153,31 @@ def api_job_status(job_id: str):
         "results": job["results"],
         "logs": job["logs"][-30:],
         "total_results": len(job["results"]),
+        "items_verified": job.get("items_verified", 0),
+    })
+
+
+@app.route("/api/job/<job_id>/cancel", methods=["POST"])
+def api_job_cancel(job_id: str):
+    job = jobs.get(job_id)
+    if not job:
+        return jsonify({"error": "Job not found"}), 404
+
+    cancel_event: threading.Event | None = job.get("_cancel_event")
+    if cancel_event:
+        cancel_event.set()
+
+    job["status"] = "cancelled"
+    cancel_msg = "⏹ Busca cancelada pelo usuário."
+    if not job["logs"] or job["logs"][-1] != cancel_msg:
+        job["logs"].append(cancel_msg)
+
+    return jsonify({
+        "id": job["id"],
+        "status": "cancelled",
+        "results": job["results"],
+        "total_results": len(job["results"]),
+        "logs": job["logs"][-30:],
         "items_verified": job.get("items_verified", 0),
     })
 

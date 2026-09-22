@@ -115,6 +115,10 @@ function parseKeywords(raw) {
  *   - Clear error messages distinguishing timeout vs API error
  */
 async function fetchProxy(url, params = {}) {
+    if (typeof isSearchStopped !== 'undefined' && isSearchStopped) {
+        throw new Error("Busca interrompida pelo usuário.");
+    }
+
     const searchParams = new URLSearchParams();
     searchParams.append("url", url);
     for (const [k, v] of Object.entries(params)) {
@@ -126,11 +130,22 @@ async function fetchProxy(url, params = {}) {
 
     let lastError;
     for (let attempt = 1; attempt <= FETCH_MAX_RETRIES + 1; attempt++) {
+        if (typeof isSearchStopped !== 'undefined' && isSearchStopped) {
+            throw new Error("Busca interrompida pelo usuário.");
+        }
+
         const controller = new AbortController();
+        if (typeof window !== 'undefined') {
+            window.currentFetchController = controller;
+        }
         const timerId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
         try {
             const resp = await fetch(proxyUrl, { signal: controller.signal });
             clearTimeout(timerId);
+
+            if (typeof window !== 'undefined' && window.currentFetchController === controller) {
+                window.currentFetchController = null;
+            }
 
             if (resp.ok) {
                 return await resp.json();
@@ -147,6 +162,14 @@ async function fetchProxy(url, params = {}) {
             throw new Error(`Erro na API (${resp.status}) ao acessar ${url}`);
         } catch (err) {
             clearTimeout(timerId);
+            if (typeof window !== 'undefined' && window.currentFetchController === controller) {
+                window.currentFetchController = null;
+            }
+
+            if (typeof isSearchStopped !== 'undefined' && isSearchStopped) {
+                throw new Error("Busca interrompida pelo usuário.");
+            }
+
             if (err.name === "AbortError") {
                 lastError = new Error(`Timeout (${FETCH_TIMEOUT_MS / 1000}s) ao acessar ${url}`);
             } else if (err.message.startsWith("Erro na API") || err.message.startsWith("Timeout")) {
@@ -168,7 +191,17 @@ async function fetchProxy(url, params = {}) {
 }
 
 function _sleep(ms) {
-    return new Promise(resolve => setTimeout(resolve, ms));
+    return new Promise(resolve => {
+        const checkInterval = 100;
+        let waited = 0;
+        const intervalId = setInterval(() => {
+            waited += checkInterval;
+            if ((typeof isSearchStopped !== 'undefined' && isSearchStopped) || waited >= ms) {
+                clearInterval(intervalId);
+                resolve();
+            }
+        }, checkInterval);
+    });
 }
 
 // ── Local Extraction Pipeline ──────────────────────────────────────────────────
@@ -276,6 +309,7 @@ async function runLocalExtraction(params, logCallback, progressCallback) {
                 page++;
                 
             } catch (e) {
+                if (typeof isSearchStopped !== 'undefined' && isSearchStopped) return;
                 logCallback(`⚠ Erro ao buscar processos (API): ${e.message}`);
                 break; 
             }
@@ -284,7 +318,7 @@ async function runLocalExtraction(params, logCallback, progressCallback) {
     }
     
     logCallback(`Encontrados ${processes.length} processos válidos.`);
-    if (processes.length === 0) return;
+    if (processes.length === 0 || (typeof isSearchStopped !== 'undefined' && isSearchStopped)) return;
     
     let processedCount = 0;
     
@@ -292,7 +326,7 @@ async function runLocalExtraction(params, logCallback, progressCallback) {
     window.restartProcess = false;
     
     for (const proc of processes) {
-        if (isSearchStopped) return;
+        if (typeof isSearchStopped !== 'undefined' && isSearchStopped) return;
         processedCount++;
         window.skipProcess = false;
         window.restartProcess = false;
@@ -316,6 +350,7 @@ async function runLocalExtraction(params, logCallback, progressCallback) {
             const countStr = await fetchProxy(PNCP_COUNT_URL(cnpj, ano, seq));
             itemsCount = parseInt(countStr, 10) || 0;
         } catch (e) {
+            if (typeof isSearchStopped !== 'undefined' && isSearchStopped) return;
             logCallback(`⚠ Não foi possível obter contagem de itens para ${pid}: ${e.message} — processo ignorado.`);
             continue;
         }
@@ -331,7 +366,7 @@ async function runLocalExtraction(params, logCallback, progressCallback) {
             
         const totalPages = Math.ceil(itemsCount / 500);
         for (let p = 1; p <= totalPages; p++) {
-            if (isSearchStopped) return;
+            if (typeof isSearchStopped !== 'undefined' && isSearchStopped) return;
             
             if (window.skipProcess) {
                 logCallback(`Processo ${pid} pulado pelo usuário.`);
@@ -344,11 +379,13 @@ async function runLocalExtraction(params, logCallback, progressCallback) {
             try {
                 localItems = await fetchProxy(PNCP_ITEMS_URL(cnpj, ano, seq), { pagina: p, tamanhoPagina: 500 });
             } catch (e) {
+                if (typeof isSearchStopped !== 'undefined' && isSearchStopped) return;
                 logCallback(`⚠ Erro ao buscar itens (pág ${p}) do Processo ${pid}: ${e.message}`);
                 break; // skip remaining pages of this process only
             }
             
             for (let i = 0; i < localItems.length; i++) {
+                if (typeof isSearchStopped !== 'undefined' && isSearchStopped) return;
                 const item = localItems[i];
                 const desc = item.descricao || "";
                 const normDesc = normalizeStr(desc);
@@ -406,5 +443,9 @@ async function runLocalExtraction(params, logCallback, progressCallback) {
         }
     }
     
-    logCallback("Extração Local concluída!");
+    if (typeof isSearchStopped !== 'undefined' && isSearchStopped) {
+        logCallback(`⏹ Busca interrompida pelo usuário. ${allResults.length} itens encontrados até o momento.`);
+    } else {
+        logCallback("Extração Local concluída!");
+    }
 }

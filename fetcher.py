@@ -140,7 +140,13 @@ class PNCPFetcher:
         return items, total
 
     # ── Items API ────────────────────────────────────────────────────────
-    def get_items_count(self, cnpj: str, ano: int, seq: int) -> int:
+    def get_items_count(
+        self,
+        cnpj: str,
+        ano: int,
+        seq: int,
+        is_cancelled: Callable[[], bool] | None = None,
+    ) -> int:
         """
         Return the number of items in a process.
 
@@ -149,12 +155,17 @@ class PNCPFetcher:
         endpoint (frequent 502s) and the adapter-level Retry may not cover
         all edge cases (e.g. timeouts before a response status is received).
         """
+        if is_cancelled and is_cancelled():
+            return 0
+
         url = config.ITEMS_COUNT_URL.format(cnpj=cnpj, ano=ano, seq=seq)
         max_attempts = 4
         backoff = 2.0  # seconds
 
         last_exc: Exception | None = None
         for attempt in range(1, max_attempts + 1):
+            if is_cancelled and is_cancelled():
+                return 0
             try:
                 count = self._get(url, timeout=config.FETCH_TIMEOUT_ITEMS_COUNT)
                 log.debug("Items count %s/%s/%s → %s", cnpj, ano, seq, count)
@@ -164,6 +175,8 @@ class PNCPFetcher:
                 requests.exceptions.ConnectionError,
                 requests.exceptions.HTTPError,
             ) as exc:
+                if is_cancelled and is_cancelled():
+                    return 0
                 last_exc = exc
                 status_code = getattr(getattr(exc, "response", None), "status_code", None)
                 # Only retry on transient errors
@@ -185,10 +198,18 @@ class PNCPFetcher:
         ) from last_exc
 
     def get_items(
-        self, cnpj: str, ano: int, seq: int, page_size: int = 500,
+        self,
+        cnpj: str,
+        ano: int,
+        seq: int,
+        page_size: int = 500,
+        is_cancelled: Callable[[], bool] | None = None,
     ) -> list[dict]:
         """Fetch ALL items for a process, paginating if necessary."""
-        total_count = self.get_items_count(cnpj, ano, seq)
+        if is_cancelled and is_cancelled():
+            return []
+
+        total_count = self.get_items_count(cnpj, ano, seq, is_cancelled=is_cancelled)
         if total_count == 0:
             return []
 
@@ -197,6 +218,9 @@ class PNCPFetcher:
         total_pages = -(-total_count // page_size)  # ceil div
 
         while page <= total_pages:
+            if is_cancelled and is_cancelled():
+                return all_items
+
             items = self._get(
                 config.ITEMS_URL.format(cnpj=cnpj, ano=ano, seq=seq),
                 params={"pagina": page, "tamanhoPagina": page_size},
@@ -242,6 +266,7 @@ class PNCPFetcher:
         contratante: str | None = None,
         status: str | None = None,
         max_processes: int = config.DEFAULT_MAX_PROCESSES,
+        is_cancelled: Callable[[], bool] | None = None,
     ) -> list[dict]:
         """
         Search for processes matching any of *keywords*, then apply
@@ -251,8 +276,16 @@ class PNCPFetcher:
         results: list[dict] = []
 
         for kw in keywords:
+            if is_cancelled and is_cancelled():
+                log.info("discover_processes cancelled by user.")
+                return results
+
             page = 1
             while True:
+                if is_cancelled and is_cancelled():
+                    log.info("discover_processes cancelled by user.")
+                    return results
+
                 items, total = self.search_processes(
                     kw, page=page, status=status, uf=uf,
                 )
@@ -260,6 +293,10 @@ class PNCPFetcher:
                     break
 
                 for proc in items:
+                    if is_cancelled and is_cancelled():
+                        log.info("discover_processes cancelled by user.")
+                        return results
+
                     pid = proc.get("numero_controle_pncp", "")
                     if pid in seen:
                         continue

@@ -375,7 +375,11 @@ async function startLocalSearch(params) {
         const elapsed = _elapsedStr();
         if (isSearchStopped) {
             _searchInProgress = false;
-            finishSearchUI("⏹ Busca interrompida pelo usuário.", "error");
+            const count = allResults.length;
+            const msg = count > 0
+                ? `⏹ Busca interrompida — ${count} ${count === 1 ? 'item retido' : 'itens retidos'}.`
+                : "⏹ Busca interrompida pelo usuário.";
+            finishSearchUI(msg, "cancelled");
         } else {
             finishSearchUI(`✅ Concluído — ${allResults.length} itens encontrados.`, "done");
             showCompletionLog(_itemsVerified, elapsed);
@@ -385,23 +389,33 @@ async function startLocalSearch(params) {
     } catch (e) {
         _stopTimer();
         _searchInProgress = false;
-        console.error(e);
-        logCB(`Erro fatal: ${e.message}`);
-        finishSearchUI("⚠ Erro durante a extração local.", "error");
+        if (isSearchStopped) {
+            const count = allResults.length;
+            const msg = count > 0
+                ? `⏹ Busca interrompida — ${count} ${count === 1 ? 'item retido' : 'itens retidos'}.`
+                : "⏹ Busca interrompida pelo usuário.";
+            finishSearchUI(msg, "cancelled");
+        } else {
+            console.error(e);
+            logCB(`Erro fatal: ${e.message}`);
+            finishSearchUI("⚠ Erro durante a extração local.", "error");
+        }
     }
 }
 
 function pollJob(jobId) {
     if (isSearchStopped) {
-        clearInterval(pollTimer);
-        pollTimer = null;
-        _stopTimer();
-        finishSearchUI("⏹ Busca interrompida pelo usuário.", "error");
+        if (pollTimer) {
+            clearInterval(pollTimer);
+            pollTimer = null;
+        }
         return;
     }
     fetch(`/api/job/${jobId}`)
         .then(r => r.json())
         .then(job => {
+            if (isSearchStopped) return;
+
             // progress bar
             if (job.progress) {
                 const pct = Math.round((job.progress.current / job.progress.total) * 100);
@@ -412,11 +426,13 @@ function pollJob(jobId) {
 
             // logs — usando colorizeLog unificado
             const logPanel = document.getElementById("log-panel");
-            logPanel.innerHTML = job.logs.map(l => {
-                const cls = colorizeLog(l);
-                return `<div class="${cls}">${escapeHtml(l)}</div>`;
-            }).join("");
-            logPanel.scrollTop = logPanel.scrollHeight;
+            if (logPanel && job.logs) {
+                logPanel.innerHTML = job.logs.map(l => {
+                    const cls = colorizeLog(l);
+                    return `<div class="${cls}">${escapeHtml(l)}</div>`;
+                }).join("");
+                logPanel.scrollTop = logPanel.scrollHeight;
+            }
 
             // items_verified via campo dedicado (sem regex)
             if (job.items_verified > 0) {
@@ -424,8 +440,14 @@ function pollJob(jobId) {
                 _updateStatusPanel();
             }
 
-            // done?
-            if (job.status === "done" || job.status === "error" || job.status === "captcha") {
+            // Live streaming of matched results
+            if (job.results && Array.isArray(job.results) && job.results.length > 0) {
+                allResults = job.results;
+                updateStats();
+            }
+
+            // Terminal status check:
+            if (job.status === "done" || job.status === "error" || job.status === "captcha" || job.status === "cancelled") {
                 clearInterval(pollTimer);
                 pollTimer = null;
                 _stopTimer();
@@ -446,6 +468,13 @@ function pollJob(jobId) {
                     document.getElementById("progress-label").textContent =
                         "⚠ Erro durante a extração ou interrompido.";
                     showToast("⚠ Erro durante a extração ou busca interrompida.", "error");
+                } else if (job.status === "cancelled") {
+                    const count = allResults.length;
+                    const cMsg = count > 0
+                        ? `⏹ Busca interrompida — ${count} ${count === 1 ? 'item retido' : 'itens retidos'}.`
+                        : "⏹ Busca interrompida pelo usuário.";
+                    document.getElementById("progress-label").textContent = cMsg;
+                    showToast(cMsg, count > 0 ? "info" : "warn");
                 } else {
                     document.getElementById("progress-label").textContent =
                         `✅ Concluído — ${job.total_results} itens encontrados.`;
@@ -475,8 +504,66 @@ function pollJob(jobId) {
         });
 }
 
-function stopSearch() {
+async function stopSearch() {
+    if (isSearchStopped) return;
     isSearchStopped = true;
+    _searchInProgress = false;
+
+    // 1. Abort local fetch if active
+    if (window.currentFetchController) {
+        try {
+            window.currentFetchController.abort();
+        } catch (_) {}
+        window.currentFetchController = null;
+    }
+
+    // 2. Stop timer
+    _stopTimer();
+
+    // 3. Clear poll timer
+    if (pollTimer) {
+        clearInterval(pollTimer);
+        pollTimer = null;
+    }
+
+    // 4. If running server search and we have a currentJobId, cancel backend thread immediately
+    if (currentJobId) {
+        const jobIdToCancel = currentJobId;
+        try {
+            const resp = await fetch(`/api/job/${jobIdToCancel}/cancel`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" }
+            });
+            if (resp.ok) {
+                const data = await resp.json();
+                if (data.results && Array.isArray(data.results)) {
+                    allResults = data.results;
+                }
+                if (data.logs && Array.isArray(data.logs)) {
+                    const logPanel = document.getElementById("log-panel");
+                    if (logPanel) {
+                        logPanel.innerHTML = data.logs.map(l => `<div class="${colorizeLog(l)}">${escapeHtml(l)}</div>`).join("");
+                        logPanel.scrollTop = logPanel.scrollHeight;
+                    }
+                }
+                if (data.items_verified) {
+                    _itemsVerified = data.items_verified;
+                    _updateStatusPanel();
+                }
+            }
+        } catch (err) {
+            console.warn("Erro ao notificar cancelamento do job:", err);
+        }
+    }
+
+    // 5. Update UI & memory history
+    const count = allResults.length;
+    const msg = count > 0
+        ? `⏹ Busca interrompida — ${count} ${count === 1 ? 'item retido' : 'itens retidos'}.`
+        : "⏹ Busca interrompida pelo usuário. Nenhum item encontrado até o momento.";
+
+    finishSearchUI(msg, "cancelled");
+    showToast(msg, count > 0 ? "info" : "warn");
 }
 
 // ── Completion Log (inline no painel) ───────────────────────────────────
@@ -528,8 +615,13 @@ function finishSearchUI(msg, status = "done") {
     document.getElementById("progress-bar").style.width = "100%";
     document.getElementById("progress-label").textContent = msg;
     if (allResults.length > 0) {
-        if (status === "done") {
-            setFilter("to_analyze");
+        if (status === "done" || status === "cancelled") {
+            const hasToAnalyze = allResults.some(r => r.status === "to_analyze");
+            if (currentFilter === "all" || (!hasToAnalyze && currentFilter === "to_analyze")) {
+                setFilter("all");
+            } else {
+                setFilter("to_analyze");
+            }
         }
         saveCurrentSearchState();
         updateHistoryUI();
