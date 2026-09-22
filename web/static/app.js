@@ -1247,58 +1247,613 @@ document.querySelectorAll(".pill[data-result-filter]").forEach(btn => {
 
 document.getElementById("filter-text").addEventListener("input", () => renderCards());
 
-// ── AI Prompt ───────────────────────────────────────────────────────────
+// ── AI Prompt Engine ─────────────────────────────────────────────────────
+const SAMPLE_CABOS = `CABO de cobre com isolacao PVC 1kv 16mm2
+
+CABO de cobre, eletrico, flexivel, cor verde, secao nominal 2,5mm², classe de encordoamento 4 ou 5, classe de isolacao 450/ 750V, isolação em PVC/A, antichama BWF-B, 1condutor de cobre eletrolitico, tempera mole. Produto exibindo o Selo de Conformidade de forma visivel, legivel, indelevel e permanente, o nome, a marca ou logotipo do fabricante, nome do produto. Sera permitido o uso por extenso do nome do Inmetro em substituicao a logomarca “do Inmetro”. Devera conter o selo de identificacao da conformidade, atender a(s) norma(s) ABNT e Portaria(s) vigente(s) do INMETRO.
+
+CABO de cobre, eletrico, flexivel, cor preto, secao nominal 6mm², condutor de cobre, classe de encordoamento 4 ou 5, classe de isolacao 450/ 750V, tempera mole, isolado em PVC/A, antichama BWF-B. EMBALAGEM: Contendo 100 m.
+
+CABO de cobre, eletrico, flexivel, cor azul, secao nominal 6mm², condutor de cobre, classe de encordoamento 4 ou 5, classe de isolacao 450/ 750V, tempera mole, isolado em PVC/A, antichama BWF-B. EMBALAGEM: Contendo 50 m. Devera estar exibindo o numero do REGISTRO junto ao INMETRO e o Selo de Conformidade de forma visivel, legivel, indelevel e permanente, o nome, a marca ou logotipo do fabricante, nome do produto, a secao nominal, a data de fabricacao e o lote. Atender a(s) norma(s) ABNT e Portaria(s) vigente(s) do INMETRO.
+
+CABO de cobre, eletrico, flexivel, cor branco, secao nominal 6mm², condutor de cobre, classe de encordoamento 4 ou 5, classe de isolacao 450/ 750V, tempera mole, isolado em PVC/A, antichama BWF-B. EMBALAGEM: Contendo 100 m.
+
+CABO de cobre, eletrico, flexivel, cor verde, secao nominal 6mm², condutor de cobre, classe de encordoamento 4 ou 5, classe de isolacao 450/ 750V, tempera mole, isolado em PVC/A, antichama BWF-B. EMBALAGEM: Contendo 100 m.
+
+CABO de cobre, eletrico, flexivel, cor verde, secao nominal 4mm², condutor de cobre, classe de encordoamento 4 ou 5, classe de isolacao 450/ 750V, tempera mole, isolado em PVC/A, antichama BWF-B. EMBALAGEM: Contendo 100 m.
+
+CABO de cobre, eletrico, flexivel, cor verde, secao nominal 2,5mm², classe de encordoamento 4 ou 5, classe de isolacao 450/ 750V, isolacao em PVC/A, antichama BWF-B, 1 condutor de cobre eletrolitico, tempera mole. O corpo do cabo deve apresentar as seguintes informacoes: logomarca INMETRO, numero de registro no INMETRO, logomarca ou nome do OCP, numero de identificacao do OCP; se o cabo for composto de apenas um condutor, com secao 2,5 mm² ou menor, sera permitido o uso por extenso do nome do INMETRO em substituicao a sua logomarca. EMBALAGEM: Contendo 100 m. 
+
+CABO de cobre, eletrico, flexivel, cor azul, secao nominal 16mm², classe de encordoamento 5, classe de isolacao 450/ 750V, isolacao em PVC/A, antichama BWF-B, tempera mole. O corpo do cabo deve apresentar as seguintes informacoes: logomarca INMETRO, numero de registro no INMETRO, logomarca ou nome do OCP, numero de identificacao do OCP. EMBALAGEM: Contendo 100 m.
+
+CABO de cobre, eletrico, flexivel, cor azul , secao nominal 2,5mm², classe de encordoamento 4 ou 5, classe de isolacao 450/ 750V, isolacao em PVC/A, antichama BWF-B, condutores de cobre eletrolitico, tempera mole. O corpo do cabo deve apresentar as seguintes informacoes: logomarca INMETRO, numero de registro no INMETRO, logomarca ou nome do OCP, numero de identificacao do OCP; se o cabo for composto de apenas um condutor, com secao 2,5 mm² ou menor, sera permitido o uso por extenso do nome do INMETRO em substituicao a sua logomarca. EMBALAGEM: Contendo 100 m.
+
+CABO de cobre, eletrico, flexivel, cor amarelo, secao nominal 2,5mm², classe de encordoamento 4 ou 5, classe de isolacao 450/ 750V, isolacao em PVC/A, antichama BWF-B, 1 condutor de cobre eletrolitico, tempera mole. O corpo do cabo deve apresentar as seguintes informacoes: logomarca INMETRO, numero de registro no INMETRO, logomarca ou nome do OCP, numero de identificacao do OCP; se o cabo for composto de apenas um condutor, com secao 2,5 mm² ou menor, sera permitido o uso por extenso do nome do INMETRO em substituicao a sua logomarca. EMBALAGEM: Contendo 100 m. ROTULAGEM: Deve conter o Selo de Identificacao da Conformidade INMETRO, podendo ser impresso ou fixado por uma etiqueta adesiva, de forma visivel, legivel, indelevel e permanente, Nome ou marca do fabricante, Comprimento nominal (em metros), Numero de condutores e secao nominal (em mm²), Data de fabricacao e Lote. O produto devera atender a(s) seguintes legislacoes vigentes: Portaria INMETRO - Regulamento Consolidado para Fios, Cabos e Cordoes Flexiveis Eletricos, na forma do Regulamento Tecnico da Qualidade, dos Requisitos de Avaliacao da Conformidade e das Especificacoes para o Selo de Identificacao da Conformidade.
+
+CABO de cobre, eletrico, flexivel, cor vermelho, secao nominal 4mm², classe de encordoamento 4 ou 5, classe de isolacao 450/ 750V, isolacao em PVC/A, antichama BWF-B, 1 condutor de cobre eletrolitico, tempera mole. O corpo do cabo deve apresentar as seguintes informacoes: logomarca INMETRO, numero de registro no INMETRO, logomarca ou nome do OCP, numero de identificacao do OCP. EMBALAGEM: Contendo 100 m. 
+
+CABO de cobre, eletrico, flexivel, cor branco, secao nominal 4mm², classe de encordoamento 4 ou 5, classe de isolacao 450/ 750V, isolacao em PVC/A, antichama BWF-B, 1 condutor de cobre eletrolitico, tempera mole. O corpo do cabo deve apresentar as seguintes informacoes: logomarca INMETRO, numero de registro no INMETRO, logomarca ou nome do OCP, numero de identificacao do OCP. EMBALAGEM: Contendo 100 m. 
+
+CABO de cobre, eletrico, flexivel, cor branco, secao nominal 2,5mm², classe de encordoamento 4 ou 5, classe de isolacao 450/ 750V, isolacaoo em PVC/A, antichama BWF-B, 1condutor de cobre eletrolitico, tempera mole. O corpo do cabo deve apresentar as seguintes informacoes: logomarca INMETRO, numero de registro no INMETRO, logomarca ou nome do OCP, numero de identificacao do OCP; se o cabo for composto de apenas um condutor, com secao 2,5 mm² ou menor, sera permitido o uso por extenso do nome do INMETRO em substituicao a sua logomarca. EMBALAGEM: Contendo 100 m. ROTULAGEM: Deve conter o Selo de Identificacao da Conformidade INMETRO, podendo ser impresso ou fixado por uma etiqueta adesiva, de forma visivel, legivel, indelevel e permanente, Nome ou marca do fabricante, Comprimento nominal (em metros), Numero de condutores e secao nominal (em mm²), Data de fabricacao e Lote. O produto devera atender a(s) seguintes legislacoes vigentes: Portaria INMETRO - Regulamento Consolidado para Fios, Cabos e Cordoes Flexiveis Eletricos, na forma do Regulamento Tecnico da Qualidade, dos Requisitos de Avaliacao da Conformidade e das Especificacoes para o Selo de Identificacao da Conformidade.
+
+CABO, de cobre, eletrico, flexivel, cor vermelho, secao nominal 2,5mm², classe de encordoamento 4 ou 5, classe de isolacao 450/ 750V, isolado em PVC/A, antichama BWF-B, condutor de cobre, tempera mole. O corpo do cabo deve apresentar as seguintes informacoes: logomarca INMETRO, numero de registro no INMETRO, logomarca ou nome do OCP, numero de identificacao do OCP; se o cabo for composto de apenas um condutor, com secao 2,5 mm² ou menor, sera permitido o uso por extenso do nome do INMETRO em substituicao a sua logomarca. EMBALAGEM: Contendo 50 m. ROTULAGEM: Devera constar externamente ao rolo etiqueta no minimo, as seguintes informacoes tecnicas de forma legivel e indelevel e em lingua portuguesa: Selo de Identificacao da Conformidade INMETRO; Nome ou marca do fabricante, Origem da industria, Tensao de isolamento (V) ou (V0/V), em V; Numero da norma tecnica de referencia; Comprimento nominal, em m (metro); Numero de condutores e secao nominal, em mm²; Norma tecnica base para ensaios de tipo; Massa bruta, em kg; Lote e data de fabricacao. O produto devera atender a(s) seguintes legislacoes vigentes: Portaria INMETRO - Regulamento Consolidado para Fios, Cabos e Cordoes Flexiveis Eletricos, na forma do Regulamento Tecnico da Qualidade, dos Requisitos de Avaliacao da Conformidade e das Especificações para o Selo de Identificacao da Conformidade.`;
+
+let _detectedAICategories = {}; // { "Cabo de Cobre Flexível": ["item1", ...] }
+let _selectedAICategories = new Set();
+let _aiInputDebounce = null;
+
 function openAIPromptModal() {
-    document.getElementById("ai-modal").classList.remove("hidden");
+    const modal = document.getElementById("ai-modal");
+    if (modal) modal.classList.remove("hidden");
+    const rawEl = document.getElementById("ai-raw-items");
+    if (rawEl && rawEl.value.trim()) {
+        updateDetectedCategories();
+    }
+    updateAICompareStatusUI();
 }
 
 function closeAIPromptModal() {
-    document.getElementById("ai-modal").classList.add("hidden");
+    const modal = document.getElementById("ai-modal");
+    if (modal) modal.classList.add("hidden");
 }
 
-function generateAIPrompt() {
-    const mainDesc = document.getElementById("ai-main-desc").value.trim();
-    if (!mainDesc) {
-        alert("Por favor, insira a descrição principal.");
+function switchAITab(tab) {
+    const btnSearch = document.getElementById("tab-btn-search-prompts");
+    const btnCompare = document.getElementById("tab-btn-compare-prompts");
+    const contentSearch = document.getElementById("ai-tab-search-prompts");
+    const contentCompare = document.getElementById("ai-tab-compare-prompts");
+
+    if (tab === "search-prompts") {
+        if (btnSearch) btnSearch.classList.add("active");
+        if (btnCompare) btnCompare.classList.remove("active");
+        if (contentSearch) contentSearch.classList.remove("hidden");
+        if (contentCompare) contentCompare.classList.add("hidden");
+    } else {
+        if (btnSearch) btnSearch.classList.remove("active");
+        if (btnCompare) btnCompare.classList.add("active");
+        if (contentSearch) contentSearch.classList.add("hidden");
+        if (contentCompare) contentCompare.classList.remove("hidden");
+        updateAICompareStatusUI();
+    }
+}
+
+function loadSampleCabos() {
+    const el = document.getElementById("ai-raw-items");
+    if (el) {
+        el.value = SAMPLE_CABOS;
+        updateDetectedCategories();
+        showToast("✨ 15 itens de cabos de exemplo carregados!", "info");
+    }
+}
+
+function clearAISearchItems() {
+    const el = document.getElementById("ai-raw-items");
+    if (el) el.value = "";
+    _detectedAICategories = {};
+    _selectedAICategories.clear();
+    updateDetectedCategories();
+    const out = document.getElementById("ai-output-container");
+    if (out) out.classList.add("hidden");
+}
+
+function importItemsFromCurrentSearch() {
+    if (!allResults || allResults.length === 0) {
+        showToast("Nenhum item na busca atual para importar.", "warn");
         return;
     }
 
-    const validStatuses = ["to_analyze", "approved"];
+    let targetItems = allResults.filter(r => r.status === "to_analyze" || r.status === "approved");
+    if (targetItems.length === 0) targetItems = allResults;
+
+    const descriptions = targetItems.map(r => r.descricao).filter(d => d && d.trim());
+    if (descriptions.length === 0) {
+        showToast("Nenhuma descrição encontrada nos itens da busca.", "warn");
+        return;
+    }
+
+    const el = document.getElementById("ai-raw-items");
+    if (el) {
+        el.value = descriptions.join("\n\n");
+        updateDetectedCategories();
+        showToast(`📥 ${descriptions.length} itens importados da busca atual!`, "success");
+    }
+}
+
+function classifyItemDescription(rawText) {
+    if (!rawText) return "Geral";
+    const text = rawText.toLowerCase()
+        .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+        .replace(/[,;:\-\–\—\(\)\[\]]/g, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+
+    // 1. Cabos / Condutores elétricos
+    if (text.includes("cabo") || text.includes("fio ") || text.includes("condutor")) {
+        const isCobre = text.includes("cobre");
+        const base = isCobre ? "Cabo de Cobre" : "Cabo Elétrico";
+        if (text.includes("flexivel")) return `${base} Flexível`;
+        if (text.includes("1kv") || text.includes("1 kv") || text.includes("isolacao pvc")) return `${base} 1kV / Isolado`;
+        if (text.includes("multiplexado")) return `${base} Multiplexado`;
+        if (text.includes("rigido")) return `${base} Rígido`;
+        if (text.includes("rede") || text.includes("cat6") || text.includes("cat5") || text.includes("utp")) return "Cabo de Rede / UTP";
+        return base;
+    }
+
+    // 2. Disjuntores
+    if (text.includes("disjuntor")) {
+        if (text.includes("bipolar")) return "Disjuntor Bipolar";
+        if (text.includes("tripolar")) return "Disjuntor Tripolar";
+        if (text.includes("monopolar") || text.includes("unipolar")) return "Disjuntor Monopolar";
+        if (text.includes("caixa moldada")) return "Disjuntor Caixa Moldada";
+        return "Disjuntores";
+    }
+
+    // 3. Lâmpadas / Iluminação
+    if (text.includes("lampada") || text.includes("luminaria") || text.includes("refletor")) {
+        if (text.includes("led") && text.includes("tubular")) return "Lâmpada LED Tubular";
+        if (text.includes("led")) return "Iluminação LED";
+        return "Iluminação";
+    }
+
+    // 4. Eletrodutos / Tubulações
+    if (text.includes("eletroduto") || text.includes("tubo")) {
+        if (text.includes("pvc")) return "Eletroduto / Tubo PVC";
+        if (text.includes("galvanizado") || text.includes("aco")) return "Eletroduto Metálico";
+        return "Eletrodutos";
+    }
+
+    // 5. Fallback baseado nos primeiros termos significativos
+    const stopWords = new Set(["de", "com", "em", "para", "a", "o", "as", "os", "do", "da", "dos", "das", "um", "uma", "cor", "secao", "nominal", "tipo", "marca", "unidade"]);
+    const words = text.split(" ").filter(w => w.length > 2 && !stopWords.has(w) && !/^\d+/.test(w));
+    if (words.length >= 2) {
+        return words.slice(0, 2).map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
+    }
+    if (words.length === 1) {
+        return words[0].charAt(0).toUpperCase() + words[0].slice(1);
+    }
+    return "Outros / Diversos";
+}
+
+function parseItemsAndCategories(rawText) {
+    const lines = (rawText || "").split(/\r?\n/);
+    const categories = {};
+    let currentCat = null;
+    let currentItem = "";
+    let totalItems = 0;
+
+    function flushItem() {
+        const trimmed = currentItem.trim();
+        if (trimmed) {
+            const cat = currentCat || classifyItemDescription(trimmed);
+            if (!categories[cat]) categories[cat] = [];
+            categories[cat].push(trimmed);
+            totalItems++;
+        }
+        currentItem = "";
+    }
+
+    for (let line of lines) {
+        const trimmedLine = line.trim();
+        if (!trimmedLine) {
+            flushItem();
+            continue;
+        }
+
+        // Cabeçalhos explícitos de categoria: "# Cabos", "[Cabos]", "Categoria: Cabos"
+        const headerMatch = trimmedLine.match(/^(?:#+\s*|\[|Categoria:\s*)([^\]#\n]+)(?:\])?$/i);
+        if (headerMatch && !trimmedLine.includes(";") && trimmedLine.length < 50 && !trimmedLine.toLowerCase().startsWith("cabo de cobre")) {
+            flushItem();
+            currentCat = headerMatch[1].trim();
+            continue;
+        }
+
+        // Itens que começam com numeração ou marcador de lista
+        if (/^(?:\d+[\.\-\)]\s*|item\s*\d+[:\-]\s*|[\*\-]\s*)/i.test(trimmedLine)) {
+            flushItem();
+            currentItem = trimmedLine.replace(/^(?:\d+[\.\-\)]\s*|item\s*\d+[:\-]\s*|[\*\-]\s*)/i, "");
+        } else if (currentItem) {
+            currentItem += " " + trimmedLine;
+        } else {
+            currentItem = trimmedLine;
+        }
+    }
+    flushItem();
+
+    return { categories, totalItems };
+}
+
+function onAIRawItemsInput() {
+    clearTimeout(_aiInputDebounce);
+    _aiInputDebounce = setTimeout(updateDetectedCategories, 250);
+}
+
+function updateDetectedCategories() {
+    const rawEl = document.getElementById("ai-raw-items");
+    const raw = rawEl ? rawEl.value : "";
+    const { categories, totalItems } = parseItemsAndCategories(raw);
+    _detectedAICategories = categories;
+
+    const catNames = Object.keys(categories);
+    const catCountEl = document.getElementById("ai-cat-count");
+    const itemCountEl = document.getElementById("ai-item-count");
+    if (catCountEl) catCountEl.textContent = catNames.length;
+    if (itemCountEl) itemCountEl.textContent = `${totalItems} ${totalItems === 1 ? 'item' : 'itens'}`;
+
+    // Sincroniza _selectedAICategories: mantém as já selecionadas ou seleciona todas novas
+    const newSelected = new Set();
+    catNames.forEach(name => {
+        if (_selectedAICategories.has(name) || _selectedAICategories.size === 0) {
+            newSelected.add(name);
+        }
+    });
+    _selectedAICategories = newSelected;
+
+    const container = document.getElementById("ai-category-chips");
+    if (!container) return;
+
+    if (catNames.length === 0) {
+        container.innerHTML = `<span style="font-size:0.78rem;color:var(--text-dim);">Cole itens acima ou clique em 'Exemplo Cabos' para detectar categorias.</span>`;
+        return;
+    }
+
+    container.innerHTML = catNames.map(name => {
+        const isChecked = _selectedAICategories.has(name);
+        const count = categories[name].length;
+        const activeCls = isChecked ? "active" : "";
+        return `
+            <label class="ai-cat-chip ${activeCls}" title="Clique para selecionar ou desmarcar esta categoria">
+                <input type="checkbox" ${isChecked ? "checked" : ""} onchange="toggleAICategory('${escapeHtml(name)}')">
+                <span>${escapeHtml(name)}</span>
+                <span class="ai-cat-count">${count}</span>
+            </label>
+        `;
+    }).join("");
+}
+
+function toggleAICategory(catName) {
+    if (_selectedAICategories.has(catName)) {
+        _selectedAICategories.delete(catName);
+    } else {
+        _selectedAICategories.add(catName);
+    }
+    updateDetectedCategories();
+}
+
+function toggleAllAICategories(selectAll) {
+    _selectedAICategories.clear();
+    if (selectAll) {
+        Object.keys(_detectedAICategories).forEach(k => _selectedAICategories.add(k));
+    }
+    updateDetectedCategories();
+}
+
+function buildAIPromptTemplate(formattedItemsText) {
+    return `Gere strings de busca para que meu bot busque pelos itens no portal do PNCP. Tente agrupar o máximo de itens por string, pode gerar varias strings separadas sempre que necessário.
+
+Instruções de uso: [📖 Guia de Busca
+
+Sintaxe Geral
+Termo Base [Filtro Simples | {Opção A | Opção B} | {Opção 1 | Opção 2}]
+
+Hierarquia de Obrigatoriedade:
+- Termo Base: ⚠️ Obrigatório. Todas as palavras devem existir na descrição. Exemplo: cabo de cobre
+- [Filtro Simples]: ⚠️ Obrigatório. O termo deve existir no item. Exemplo: [flexivel]
+- [{A | B}]: ⚠️ Obrigatório (OR interno). Pelo menos UM dos termos dentro das chaves deve existir. Exemplo: {vermelho | azul}
+
+Exemplo Prático:
+cabo de cobre [flexivel | {vermelho | azul} | {2,5mm | 1,5mm}]
+
+Descrição do Item | Resultado | Motivo
+- Cabo de Cobre Flexível Azul 2,5mm | ✅ Aprovado | Atende a todos os critérios e grupos.
+- Cabo de Cobre Flexível Verde 2,5mm | ❌ Rejeitado | Possui "Flexível" e "2,5mm", mas não possui "Vermelho" nem "Azul".
+- Cabo de Cobre Azul 1,5mm (sem "Flexível") | ❌ Rejeitado | Falta o termo obrigatório "Flexível".
+- Cano de Cobre Azul 1,5mm | ❌ Rejeitado | Não atende ao termo base "cabo de cobre".
+
+💡 Dica: Buscas Mais Amplas
+Se quiser resultados menos restritivos, remova os grupos de chaves { } ou os filtros dentro de [ ]. Quanto mais filtros você define, mais cirúrgica é a busca.
+
+Ordenação dos Resultados:
+Itens Pendentes (não revisados) aparecem sempre no topo. Itens já tratados (Aprovados, Para Analisar) vão ao final. Rejeitados ficam sempre por último.
+
+Regras de Otimização e Agrupamento:
+1. Agrupe variações de um mesmo produto usando grupos com chaves '{ Opção 1 | Opção 2 | ... }' para características variáveis (como cores, bitolas/seções nominais, tensões, etc.).
+2. O termo base (fora dos colchetes) deve conter apenas o nome comum principal do produto (ex: 'cabo de cobre', 'disjuntor', etc.).
+3. Dentro dos colchetes '[ ... ]', use filtros simples para características obrigatórias (ex: 'flexivel') e chaves '{ ... }' separadas por pipe '|' para alternativas.
+4. Separe em strings distintas quando os itens forem de categorias ou especificações incompatíveis.
+5. O resultado esperado é algo como:
+   'cabo de cobre [flexivel | {2,5mm | 4mm | 6mm | 16mm} | {verde | preto | azul | branco | amarelo | vermelho}]'
+   'cabo de cobre [1kv | {16mm2 | 16mm}]'
+]
+
+Descrição dos itens: [
+${formattedItemsText}
+]
+
+Forneça as strings de busca otimizadas resultantes no formato exato acima, prontas para colar no campo de busca do bot.`;
+}
+
+function generateSearchStringsPrompt() {
+    const rawEl = document.getElementById("ai-raw-items");
+    const raw = rawEl ? rawEl.value.trim() : "";
+    if (!raw) {
+        showToast("Cole as descrições dos itens antes de gerar o prompt.", "warn");
+        return;
+    }
+
+    const { categories, totalItems } = parseItemsAndCategories(raw);
+    _detectedAICategories = categories;
+
+    const selectedCats = Object.keys(categories).filter(c => _selectedAICategories.has(c));
+    if (selectedCats.length === 0) {
+        showToast("Selecione pelo menos uma categoria para gerar.", "warn");
+        return;
+    }
+
+    const mode = document.querySelector('input[name="ai-generation-mode"]:checked')?.value || "combined";
+    const outputContainer = document.getElementById("ai-output-container");
+    const outputTitle = document.getElementById("ai-output-title");
+    const outputActions = document.getElementById("ai-output-actions");
+    const outputBody = document.getElementById("ai-output-body");
+
+    if (!outputContainer) return;
+    outputContainer.classList.remove("hidden");
+
+    if (mode === "combined") {
+        // MODO EM CONJUNTO
+        let itemsBlock = "";
+        let selectedTotalItems = 0;
+        selectedCats.forEach((catName, idx) => {
+            const list = categories[catName];
+            selectedTotalItems += list.length;
+            itemsBlock += `\n### Categoria ${idx + 1}: ${catName} (${list.length} itens)\n`;
+            list.forEach((item, itemIdx) => {
+                itemsBlock += `${itemIdx + 1}. ${item}\n\n`;
+            });
+        });
+
+        const fullPrompt = buildAIPromptTemplate(itemsBlock.trim());
+
+        if (outputTitle) {
+            outputTitle.innerHTML = `📋 Prompt Unificado (${selectedCats.length} ${selectedCats.length === 1 ? 'categoria' : 'categorias'} • ${selectedTotalItems} itens)`;
+        }
+        if (outputActions) {
+            outputActions.innerHTML = `
+                <button class="btn-action" style="font-size:0.75rem;padding:4px 14px;border-color:#38bdf8;color:#38bdf8;" onclick="copyAIPromptText('combined')">📋 Copiar Prompt Unificado</button>
+            `;
+        }
+        if (outputBody) {
+            outputBody.innerHTML = `<pre class="ai-output-pre" id="ai-output-text-combined">${escapeHtml(fullPrompt)}</pre>`;
+        }
+
+        // Copia automaticamente para a área de transferência
+        copyAIPromptText('combined');
+
+    } else {
+        // MODO SEPARADAMENTE POR CATEGORIA
+        window._aiPromptsByCat = {};
+        let allPromptsText = "";
+
+        const cardsHtml = selectedCats.map((catName, idx) => {
+            const list = categories[catName];
+            let itemsBlock = "";
+            list.forEach((item, itemIdx) => {
+                itemsBlock += `${itemIdx + 1}. ${item}\n\n`;
+            });
+
+            const catPrompt = buildAIPromptTemplate(itemsBlock.trim());
+            const catKey = `cat_${idx}`;
+            window._aiPromptsByCat[catKey] = catPrompt;
+            allPromptsText += `\n=========================================\nCATEGORIA: ${catName.toUpperCase()} (${list.length} itens)\n=========================================\n\n${catPrompt}\n\n`;
+
+            return `
+                <div class="ai-cat-card">
+                    <div class="ai-cat-card-top">
+                        <span class="ai-cat-card-title">🏷 ${escapeHtml(catName)} (${list.length} ${list.length === 1 ? 'item' : 'itens'})</span>
+                        <button class="btn-action" style="font-size:0.72rem;padding:3px 10px;border-color:#c084fc;color:#c084fc;" onclick="copyAIPromptText('${catKey}')">📋 Copiar Categoria</button>
+                    </div>
+                    <pre class="ai-output-pre" style="max-height:160px;">${escapeHtml(catPrompt)}</pre>
+                </div>
+            `;
+        }).join("");
+
+        window._aiPromptsByCat['all_separate'] = allPromptsText.trim();
+
+        if (outputTitle) {
+            outputTitle.innerHTML = `📋 Prompts Individuais (${selectedCats.length} categorias)`;
+        }
+        if (outputActions) {
+            outputActions.innerHTML = `
+                <button class="btn-action" style="font-size:0.75rem;padding:4px 12px;border-color:#38bdf8;color:#38bdf8;" onclick="copyAIPromptText('all_separate')">📋 Copiar Todos Juntos</button>
+            `;
+        }
+        if (outputBody) {
+            outputBody.innerHTML = `<div class="ai-cat-card-list">${cardsHtml}</div>`;
+        }
+
+        if (selectedCats.length === 1) {
+            copyAIPromptText('cat_0');
+        } else {
+            showToast(`✨ ${selectedCats.length} prompts gerados! Copie individualmente ou todos juntos.`, "info");
+        }
+    }
+
+    outputContainer.scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
+
+function copyAIPromptText(key) {
+    let textToCopy = "";
+    if (key === "combined") {
+        textToCopy = document.getElementById("ai-output-text-combined")?.textContent || "";
+    } else if (window._aiPromptsByCat && window._aiPromptsByCat[key]) {
+        textToCopy = window._aiPromptsByCat[key];
+    }
+
+    if (!textToCopy) return;
+
+    const doSuccess = () => showToast('🤖 Prompt Copiado para a Área de Transferência!', 'success');
+
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(textToCopy).then(doSuccess).catch(() => {
+            _fallbackCopy(textToCopy, doSuccess);
+        });
+    } else {
+        _fallbackCopy(textToCopy, doSuccess);
+    }
+}
+
+// ── AI Compare Prompt Engine ────────────────────────────────────────────
+let _selectedCompareStatuses = new Set(["to_analyze", "approved"]);
+let _userTouchedCompareStatuses = false;
+
+function updateAICompareStatusUI() {
+    const container = document.getElementById("ai-compare-status-chips");
+    const summaryEl = document.getElementById("ai-compare-count-summary");
+    if (!container) return;
+
+    const counts = {
+        to_analyze: allResults.filter(r => r.status === "to_analyze").length,
+        approved:   allResults.filter(r => r.status === "approved").length,
+        pending:    allResults.filter(r => r.status === "pending").length,
+        rejected:   allResults.filter(r => r.status === "rejected").length,
+    };
+
+    // If default selection has 0 items but pending items exist and user hasn't manually changed selection, include pending
+    if (counts.to_analyze === 0 && counts.approved === 0 && counts.pending > 0 && !_userTouchedCompareStatuses) {
+        _selectedCompareStatuses.add("pending");
+    }
+
+    const statusDefs = [
+        { key: "to_analyze", label: "🔎 Para Analisar", count: counts.to_analyze },
+        { key: "approved",   label: "✓ Aprovados",     count: counts.approved },
+        { key: "pending",    label: "⏳ Pendentes",     count: counts.pending },
+        { key: "rejected",   label: "✗ Rejeitados",    count: counts.rejected },
+    ];
+
+    let totalSelected = 0;
+    statusDefs.forEach(def => {
+        if (_selectedCompareStatuses.has(def.key)) {
+            totalSelected += def.count;
+        }
+    });
+
+    if (summaryEl) {
+        if (allResults.length === 0) {
+            summaryEl.textContent = "0 itens (nenhuma busca ativa)";
+        } else {
+            summaryEl.textContent = `${totalSelected} ${totalSelected === 1 ? 'item selecionado' : 'itens selecionados'}`;
+        }
+    }
+
+    container.innerHTML = statusDefs.map(def => {
+        const isChecked = _selectedCompareStatuses.has(def.key);
+        const activeCls = isChecked ? `active status-${def.key}` : "";
+        return `
+            <label class="ai-compare-chip ${activeCls}" title="Clique para alternar inclusão dos itens '${def.label}'">
+                <input type="checkbox" ${isChecked ? "checked" : ""} onchange="toggleCompareStatus('${def.key}')">
+                <span>${def.label}</span>
+                <span class="ai-cat-count">${def.count}</span>
+            </label>
+        `;
+    }).join("");
+}
+
+function toggleCompareStatus(status) {
+    _userTouchedCompareStatuses = true;
+    if (_selectedCompareStatuses.has(status)) {
+        _selectedCompareStatuses.delete(status);
+    } else {
+        _selectedCompareStatuses.add(status);
+    }
+    updateAICompareStatusUI();
+}
+
+function generateAIComparePrompt() {
+    const mainDesc = document.getElementById("ai-main-desc").value.trim();
+    if (!mainDesc) {
+        showToast("Por favor, insira a descrição principal para comparação.", "warn");
+        document.getElementById("ai-main-desc")?.focus();
+        return;
+    }
+
+    if (allResults.length === 0) {
+        showToast("Nenhum item na busca atual. Realize uma pesquisa primeiro.", "warn");
+        return;
+    }
+
+    if (_selectedCompareStatuses.size === 0) {
+        showToast("Selecione pelo menos uma categoria/status para comparação.", "warn");
+        return;
+    }
+
     const itemsForAI = allResults
-        .filter(r => validStatuses.includes(r.status))
+        .filter(r => _selectedCompareStatuses.has(r.status))
         .map(r => ({
             id: r.item_id ? String(r.item_id) : r.process_id,
-            descricao: r.descricao
+            status: r.status === "to_analyze" ? "Para Analisar" : (r.status === "approved" ? "Aprovado" : (r.status === "pending" ? "Pendente" : "Rejeitado")),
+            descricao: r.descricao,
+            valor: (r.valor_unitario || r.valor_total) ? formatCurrency(r.valor_unitario || r.valor_total) : undefined,
+            contratante: r.contratante || undefined
         }));
 
     if (itemsForAI.length === 0) {
-        const actionBtn = document.getElementById("btn-ai-prompt");
-        if (actionBtn) {
-            const orig = actionBtn.innerHTML;
-            actionBtn.innerHTML = "⚠ Nenhum item em 'Analisar' ou 'Aprovado'";
-            setTimeout(() => { actionBtn.innerHTML = orig; }, 2500);
-        }
+        showToast("⚠ Nenhum item encontrado com os status selecionados na busca atual.", "warn");
         return;
     }
 
-    const payload = {
-        pergunta: "Alguma das descrições abaixo atende aos critérios da Descrição Principal?",
-        descricao_principal: mainDesc,
-        itens_para_analise: itemsForAI,
-        instrucao: "Responda indicando o ID do processo e o motivo da compatibilidade."
-    };
+    const format = document.querySelector('input[name="ai-compare-format"]:checked')?.value || "json";
+    let outputStr = "";
 
-    const jsonStr = JSON.stringify(payload, null, 2);
+    if (format === "json") {
+        const payload = {
+            pergunta: "Alguma das descrições abaixo atende aos critérios da Descrição Principal?",
+            descricao_principal: mainDesc,
+            status_incluidos: Array.from(_selectedCompareStatuses).map(s => s === "to_analyze" ? "Para Analisar" : (s === "approved" ? "Aprovado" : (s === "pending" ? "Pendente" : "Rejeitado"))),
+            total_itens: itemsForAI.length,
+            itens_para_analise: itemsForAI,
+            instrucao: "Analise cada item e responda indicando o ID do item, se atende tecnicamente (Compatível / Incompatível) e a justificativa técnica detalhada."
+        };
+        outputStr = JSON.stringify(payload, null, 2);
+    } else {
+        outputStr = `Você é um especialista em contratações públicas e análise técnica de editais.\n\n`;
+        outputStr += `DESCRIÇÃO PRINCIPAL DE REFERÊNCIA:\n"${mainDesc}"\n\n`;
+        outputStr += `INSTRUÇÃO DE ANÁLISE:\nAnalise os ${itemsForAI.length} itens abaixo e determine quais deles atendem tecnicamente aos critérios da Descrição Principal. Para cada item, informe o ID, veredito (Compatível / Incompatível) e justificativa técnica objetiva.\n\n`;
+        outputStr += `ITENS PARA ANÁLISE (${itemsForAI.length} itens):\n`;
+        itemsForAI.forEach((it, idx) => {
+            outputStr += `\n[Item ${idx + 1}] ID: ${it.id} | Status: ${it.status}${it.valor ? ` | Valor: ${it.valor}` : ''}${it.contratante ? ` | Órgão: ${it.contratante}` : ''}\n`;
+            outputStr += `Descrição: ${it.descricao}\n`;
+        });
+    }
 
-    const copyCallback = () => showToast('🤖 Prompt Copiado!', 'success');
+    const outContainer = document.getElementById("ai-compare-output-container");
+    const outPre = document.getElementById("ai-compare-output-pre");
+    const outTitle = document.getElementById("ai-compare-output-title");
 
-    navigator.clipboard.writeText(jsonStr).then(() => {
-        copyCallback();
-        closeAIPromptModal();
-    }).catch(() => {
-        _fallbackCopy(jsonStr, copyCallback);
-        closeAIPromptModal();
-    });
+    if (outContainer) outContainer.classList.remove("hidden");
+    if (outTitle) {
+        outTitle.textContent = `📋 Prompt de Comparação Gerado (${itemsForAI.length} itens • ${format === 'json' ? 'JSON' : 'Texto'}):`;
+    }
+    if (outPre) outPre.textContent = outputStr;
+
+    copyAICompareText();
+}
+
+function copyAICompareText() {
+    const textToCopy = document.getElementById("ai-compare-output-pre")?.textContent || "";
+    if (!textToCopy) return;
+
+    const doSuccess = () => showToast('🤖 Prompt de Comparação Copiado!', 'success');
+
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(textToCopy).then(doSuccess).catch(() => {
+            _fallbackCopy(textToCopy, doSuccess);
+        });
+    } else {
+        _fallbackCopy(textToCopy, doSuccess);
+    }
+}
+
+function generateAIPrompt() {
+    generateAIComparePrompt();
 }
 
 // ── Tampermonkey Script ──────────────────────────────────────────────────

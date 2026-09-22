@@ -19,6 +19,7 @@
                 <span class="subtitle">Busca inteligente no Portal Nacional de Contratações Públicas</span>
             </div>
             <div style="display:flex;gap:8px;align-items:center;">
+                <button class="btn-action" onclick="openAIPromptModal()" style="font-size: 0.85rem; border-color: #c084fc; color: #c084fc;">🤖 Prompts IA</button>
                 <button class="btn-action btn-history" id="btn-history" onclick="openHistoryModal()" style="font-size: 0.85rem; border-color: #38bdf8; color: #38bdf8;">🕒 Memória (<span id="history-count">0</span>)</button>
                 <button class="btn-action" onclick="openAutoModal()" style="font-size: 0.85rem; border-color: #a78bfa; color: #a78bfa;">⚙ Configurar Automação</button>
                 <button class="btn-action" onclick="openHelpModal()" style="font-size: 0.85rem; border-color: #60a5fa; color: #60a5fa;">❓ Ajuda</button>
@@ -165,12 +166,131 @@
 
     <!-- ── MODAL IA ───────────────────────────────────────────── -->
     <div id="ai-modal" class="modal hidden" onclick="handleModalOverlayClick(event)">
-        <div class="modal-content" onclick="event.stopPropagation()">
+        <div class="modal-content modal-ai" style="max-width: 860px;" onclick="event.stopPropagation()">
             <span class="close-modal" onclick="closeAIPromptModal()">&times;</span>
-            <h2 style="margin-bottom: 8px;">Gerar Prompt de Comparação</h2>
-            <p style="font-size: 0.85rem; color: var(--text-dim);">Insira a descrição principal para compararmos com os itens <strong>Para Analisar</strong> e <strong>Aprovados</strong>.</p>
-            <textarea id="ai-main-desc" rows="3" placeholder="Ex: cabo de rede cat6 vermelho..." style="width: 100%; margin: 15px 0; padding: 10px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg); color: var(--text); font-family: var(--font); resize: vertical;"></textarea>
-            <button class="btn-search" style="margin-top: 0" onclick="generateAIPrompt()">📋 Gerar e Copiar JSON</button>
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;">
+                <h2 style="margin:0;">🤖 Gerador de Prompts IA</h2>
+                <span class="badge" style="background:rgba(192,132,252,0.15);color:#c084fc;border:1px solid rgba(192,132,252,0.3);font-size:0.75rem;">Otimização PNCP</span>
+            </div>
+            <p style="font-size: 0.85rem; color: var(--text-dim); margin-bottom: 14px;">
+                Crie prompts estruturados para IA (ChatGPT, Claude, Gemini) agruparem itens em strings de busca otimizadas na sintaxe do bot.
+            </p>
+
+            <!-- Abas do Modal IA -->
+            <div class="ai-tabs">
+                <button class="ai-tab-btn active" id="tab-btn-search-prompts" onclick="switchAITab('search-prompts')">🎯 Strings de Busca Otimizadas</button>
+                <button class="ai-tab-btn" id="tab-btn-compare-prompts" onclick="switchAITab('compare-prompts')">🔍 Comparação de Itens (JSON)</button>
+            </div>
+
+            <!-- Aba 1: Strings de Busca Otimizadas -->
+            <div id="ai-tab-search-prompts" class="ai-tab-content">
+                <div class="ai-toolbar">
+                    <span style="font-size:0.82rem;font-weight:600;color:var(--text);">📝 Itens para Agrupamento:</span>
+                    <div style="display:flex;gap:6px;flex-wrap:wrap;">
+                        <button type="button" class="btn-action" style="font-size:0.75rem;padding:4px 10px;border-color:#38bdf8;color:#38bdf8;" onclick="importItemsFromCurrentSearch()" title="Importar itens da busca ativa">📥 Importar da Busca Atual</button>
+                        <button type="button" class="btn-action" style="font-size:0.75rem;padding:4px 10px;border-color:#a78bfa;color:#a78bfa;" onclick="loadSampleCabos()" title="Carregar lista exemplo de cabos elétricos com variações">✨ Exemplo Cabos</button>
+                        <button type="button" class="btn-action" style="font-size:0.75rem;padding:4px 8px;border-color:var(--border);color:var(--text-dim);" onclick="clearAISearchItems()" title="Limpar campo de itens">🗑 Limpar</button>
+                    </div>
+                </div>
+
+                <textarea id="ai-raw-items" rows="6" class="ai-textarea" placeholder="Cole aqui as descrições dos itens (uma por linha ou separadas por linhas em branco)...&#10;Exemplo:&#10;CABO de cobre com isolacao PVC 1kv 16mm2&#10;CABO de cobre, eletrico, flexivel, cor verde, secao nominal 2,5mm²...&#10;&#10;Dica: Você também pode usar cabeçalhos como '# Cabos Flexíveis' ou '[Cabo 1kV]' para agrupar categorias manualmente." oninput="onAIRawItemsInput()"></textarea>
+
+                <!-- Painel de Categorias Inteligente -->
+                <div class="ai-categories-box" id="ai-categories-box">
+                    <div class="ai-categories-header">
+                        <div style="display:flex;align-items:center;gap:8px;">
+                            <span style="font-size:0.8rem;font-weight:600;color:#c084fc;">🏷 Categorias Detectadas (<span id="ai-cat-count">0</span>):</span>
+                            <span style="font-size:0.72rem;color:var(--text-dim);" id="ai-item-count">0 itens</span>
+                        </div>
+                        <div style="display:flex;gap:6px;">
+                            <button type="button" class="btn-action" style="font-size:0.7rem;padding:2px 8px;" onclick="toggleAllAICategories(true)">Marcar Todas</button>
+                            <button type="button" class="btn-action" style="font-size:0.7rem;padding:2px 8px;" onclick="toggleAllAICategories(false)">Desmarcar Todas</button>
+                        </div>
+                    </div>
+                    <div class="ai-category-chips" id="ai-category-chips">
+                        <span style="font-size:0.78rem;color:var(--text-dim);">Cole itens acima ou clique em 'Exemplo Cabos' para detectar categorias.</span>
+                    </div>
+                </div>
+
+                <!-- Seletor de Modo de Geração -->
+                <div class="ai-mode-row">
+                    <span style="font-size:0.8rem;font-weight:600;color:var(--text);">Modo de Geração:</span>
+                    <label class="ai-mode-label">
+                        <input type="radio" name="ai-generation-mode" value="combined" checked>
+                        <span>🎯 <strong>Em Conjunto</strong> (Prompt único com todas as categorias selecionadas)</span>
+                    </label>
+                    <label class="ai-mode-label">
+                        <input type="radio" name="ai-generation-mode" value="separate">
+                        <span>📑 <strong>Separadamente</strong> (Prompt individual por categoria)</span>
+                    </label>
+                </div>
+
+                <button class="btn-search" style="margin-top:10px;width:100%;" onclick="generateSearchStringsPrompt()">⚡ Gerar Prompt(s) de Busca Otimizada</button>
+
+                <!-- Área de Saída (Prompt Gerado) -->
+                <div id="ai-output-container" class="ai-output-container hidden">
+                    <div class="ai-output-header">
+                        <span style="font-size:0.82rem;font-weight:600;color:#38bdf8;" id="ai-output-title">📋 Prompt Gerado:</span>
+                        <div id="ai-output-actions" style="display:flex;gap:8px;"></div>
+                    </div>
+                    <div id="ai-output-body"></div>
+                </div>
+            </div>
+
+            <!-- Aba 2: Comparação de Itens (JSON / Chat Prompt) -->
+            <div id="ai-tab-compare-prompts" class="ai-tab-content hidden">
+                <p style="font-size: 0.85rem; color: var(--text-dim); margin-bottom: 12px;">
+                    Selecione quais categorias/status de itens da busca ativa deseja incluir e compare com a sua descrição principal de referência.
+                </p>
+
+                <div style="margin-bottom: 10px;">
+                    <label style="font-size:0.82rem;font-weight:600;color:var(--text);display:block;margin-bottom:6px;">
+                        🎯 Descrição Principal de Referência:
+                    </label>
+                    <textarea id="ai-main-desc" rows="3" class="ai-textarea" placeholder="Ex: Cabo de rede UTP CAT6 4 pares 24AWG 100% cobre homologado Anatel..."></textarea>
+                </div>
+
+                <!-- Seletor de Categorias / Status a Incluir -->
+                <div class="ai-categories-box" style="margin-top: 8px;">
+                    <div class="ai-categories-header">
+                        <span style="font-size:0.82rem;font-weight:600;color:#c084fc;">
+                            🏷 Categorias / Status a Incluir:
+                        </span>
+                        <span style="font-size:0.75rem;color:var(--text-dim);" id="ai-compare-count-summary">
+                            0 itens selecionados
+                        </span>
+                    </div>
+                    <div class="ai-category-chips" id="ai-compare-status-chips">
+                        <!-- Gerado dinamicamente com as contagens atuais -->
+                    </div>
+                </div>
+
+                <!-- Formato de Saída -->
+                <div class="ai-mode-row" style="margin-top: 6px;">
+                    <span style="font-size:0.8rem;font-weight:600;color:var(--text);">Formato de Saída:</span>
+                    <label class="ai-mode-label">
+                        <input type="radio" name="ai-compare-format" value="json" checked>
+                        <span>📦 <strong>JSON Estruturado</strong></span>
+                    </label>
+                    <label class="ai-mode-label">
+                        <input type="radio" name="ai-compare-format" value="text">
+                        <span>💬 <strong>Prompt em Texto (Chat)</strong></span>
+                    </label>
+                </div>
+
+                <button class="btn-search" style="margin-top: 10px; width:100%;" onclick="generateAIComparePrompt()">📋 Gerar e Copiar Prompt de Comparação</button>
+
+                <!-- Área de Saída (Preview) -->
+                <div id="ai-compare-output-container" class="ai-output-container hidden" style="margin-top:12px;">
+                    <div class="ai-output-header">
+                        <span style="font-size:0.82rem;font-weight:600;color:#38bdf8;" id="ai-compare-output-title">📋 Prompt de Comparação Gerado:</span>
+                        <div style="display:flex;gap:8px;">
+                            <button class="btn-action" style="font-size:0.75rem;padding:4px 12px;border-color:#38bdf8;color:#38bdf8;" onclick="copyAICompareText()">📋 Copiar</button>
+                        </div>
+                    </div>
+                    <pre class="ai-output-pre" id="ai-compare-output-pre"></pre>
+                </div>
+            </div>
         </div>
     </div>
 
