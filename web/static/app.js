@@ -40,6 +40,7 @@ function _removeToast(toast) {
 // ── Web Notifications + document.title flip ───────────────────────────────────
 const _ORIGINAL_TITLE = document.title;
 let _titleFlipInterval = null;
+let _activeNotification = null;
 
 /**
  * Guard flag: while a search/extraction is running, notifications are
@@ -55,38 +56,10 @@ function _requestNotificationPermission() {
     }
 }
 
-function notifyCompletion(itemCount) {
-    // Guard: only fire when processing has actually finished
-    if (_searchInProgress) return;
-
-    // 1. Web Notification
-    if ('Notification' in window && Notification.permission === 'granted') {
-        try {
-            new Notification('PNCP Bot ✅', {
-                body: `${itemCount} ${itemCount === 1 ? 'item encontrado' : 'itens encontrados'}. Processamento concluído.`,
-                tag: 'pncp-done',
-            });
-        } catch (_) { /* some browsers block in non-secure contexts */ }
-    }
-
-    // 2. document.title flip (visible when tab is in background)
-    _stopTitleFlip();
-    let flipping = true;
-    _titleFlipInterval = setInterval(() => {
-        document.title = flipping ? `✅ Processo Finalizado — PNCP Bot` : _ORIGINAL_TITLE;
-        flipping = !flipping;
-    }, 1500);
-
-    // Stop flipping when user focuses the tab
-    const stopFlipping = () => {
+function _onVisibilityChange() {
+    if (!document.hidden) {
         _stopTitleFlip();
-        document.removeEventListener('visibilitychange', stopFlipping);
-    };
-    document.addEventListener('visibilitychange', () => {
-        if (!document.hidden) stopFlipping();
-    });
-    // Also stop after 30 s regardless
-    setTimeout(stopFlipping, 30_000);
+    }
 }
 
 function _stopTitleFlip() {
@@ -94,7 +67,77 @@ function _stopTitleFlip() {
         clearInterval(_titleFlipInterval);
         _titleFlipInterval = null;
     }
+    document.removeEventListener('visibilitychange', _onVisibilityChange);
     document.title = _ORIGINAL_TITLE;
+}
+
+function notifyCompletion(itemCount) {
+    // Unlock processing guard flag
+    _searchInProgress = false;
+
+    const countText = `${itemCount} ${itemCount === 1 ? 'item encontrado' : 'itens encontrados'}`;
+
+    // 1. Toast Notification no app (sempre exibida na interface em qualquer pesquisa)
+    showToast(`✅ Processamento concluído: ${countText}.`, 'success', 5000);
+
+    // 2. Web Notification do Navegador (Desktop / Central de Ações do Windows)
+    if ('Notification' in window) {
+        const fireWebNotification = () => {
+            try {
+                // Fecha notificação anterior se ainda estiver aberta no sistema
+                if (_activeNotification) {
+                    try { _activeNotification.close(); } catch (_) {}
+                    _activeNotification = null;
+                }
+
+                // Tag única por timestamp + renotify: true garante que o Windows / Chromium
+                // dispare o banner e o alerta sonoro em TODAS as pesquisas subsequentes,
+                // sem suprimir silenciosamente como acontecia com tag fixa e renotify: false.
+                const notif = new Notification('PNCP Bot ✅', {
+                    body: `${countText}. Processamento concluído.`,
+                    tag: `pncp-done-${Date.now()}`,
+                    renotify: true,
+                });
+
+                notif.onclick = () => {
+                    window.focus();
+                    try { notif.close(); } catch (_) {}
+                };
+
+                _activeNotification = notif;
+            } catch (_) { /* alguns navegadores bloqueiam em contextos não-seguros */ }
+        };
+
+        if (Notification.permission === 'granted') {
+            fireWebNotification();
+        } else if (Notification.permission === 'default') {
+            Notification.requestPermission().then(perm => {
+                if (perm === 'granted') fireWebNotification();
+            }).catch(() => {});
+        }
+    }
+
+    // 3. document.title flip (visível quando a aba estiver em segundo plano)
+    _stopTitleFlip();
+    let flipping = true;
+    _titleFlipInterval = setInterval(() => {
+        document.title = flipping ? `✅ Processo Finalizado — PNCP Bot` : _ORIGINAL_TITLE;
+        flipping = !flipping;
+    }, 1500);
+
+    document.addEventListener('visibilitychange', _onVisibilityChange);
+
+    // Se o usuário clicar na página ou a janela ganhar foco, cancela o flip do título
+    const stopOnUserAction = () => {
+        _stopTitleFlip();
+        window.removeEventListener('focus', stopOnUserAction);
+        document.removeEventListener('click', stopOnUserAction);
+    };
+    window.addEventListener('focus', stopOnUserAction, { once: true });
+    document.addEventListener('click', stopOnUserAction, { once: true });
+
+    // Limite de segurança de 30 segundos
+    setTimeout(_stopTitleFlip, 30_000);
 }
 
 // ── Unified log line colorizer ────────────────────────────────────────────────
@@ -191,6 +234,10 @@ function startSearch(e) {
     if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
     currentJobId = null;
     _stopTitleFlip();
+    if (_activeNotification) {
+        try { _activeNotification.close(); } catch (_) {}
+        _activeNotification = null;
+    }
     // UI cleanup
     hide("results-section");
     document.getElementById("smart-tags").innerHTML = "";
@@ -394,9 +441,11 @@ function pollJob(jobId) {
                 if (job.status === "captcha") {
                     document.getElementById("progress-label").textContent =
                         "⚠ CAPTCHA detectado — resolva manualmente e tente novamente.";
+                    showToast("⚠ CAPTCHA detectado — resolva manualmente.", "warn");
                 } else if (job.status === "error") {
                     document.getElementById("progress-label").textContent =
                         "⚠ Erro durante a extração ou interrompido.";
+                    showToast("⚠ Erro durante a extração ou busca interrompida.", "error");
                 } else {
                     document.getElementById("progress-label").textContent =
                         `✅ Concluído — ${job.total_results} itens encontrados.`;
@@ -891,6 +940,10 @@ function newSearch() {
     // Stop any in-flight poll / title-flip
     if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
     _stopTitleFlip();
+    if (_activeNotification) {
+        try { _activeNotification.close(); } catch (_) {}
+        _activeNotification = null;
+    }
     _stopTimer();
     _searchInProgress = false;
     isSearchStopped = false;
