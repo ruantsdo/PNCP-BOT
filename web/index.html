@@ -18,12 +18,22 @@
                 <h1>🏛️ PNCP Bot</h1>
                 <span class="subtitle">Busca inteligente no Portal Nacional de Contratações Públicas</span>
             </div>
-            <div style="display:flex;gap:8px;">
+            <div style="display:flex;gap:8px;align-items:center;">
+                <button class="btn-action btn-history" id="btn-history" onclick="openHistoryModal()" style="font-size: 0.85rem; border-color: #38bdf8; color: #38bdf8;">🕒 Memória (<span id="history-count">0</span>)</button>
                 <button class="btn-action" onclick="openAutoModal()" style="font-size: 0.85rem; border-color: #a78bfa; color: #a78bfa;">⚙ Configurar Automação</button>
                 <button class="btn-action" onclick="openHelpModal()" style="font-size: 0.85rem; border-color: #60a5fa; color: #60a5fa;">❓ Ajuda</button>
             </div>
         </div>
     </header>
+
+    <!-- ── SEARCH HISTORY BAR (MEMÓRIA) ───────────────────────── -->
+    <div class="search-history-bar hidden" id="search-history-bar">
+        <div class="history-bar-inner">
+            <span class="history-bar-title">🕒 Em Memória:</span>
+            <div class="history-chips" id="history-chips"></div>
+            <button class="btn-clear-history" onclick="clearSearchHistory()" title="Limpar pesquisas da memória">🗑 Limpar</button>
+        </div>
+    </div>
 
     <!-- ── SEARCH PANEL ───────────────────────────────────────── -->
     <section class="search-panel" id="search-panel">
@@ -281,6 +291,24 @@
             </div>
 
             <button class="btn-search" style="margin-top: 16px; width: 100%;" onclick="closeAutoModal()">Fechar</button>
+        </div>
+    </div>
+
+    <!-- ── MODAL HISTÓRICO EM MEMÓRIA ─────────────────────────── -->
+    <div id="history-modal" class="modal hidden" onclick="handleModalOverlayClick(event)">
+        <div class="modal-content modal-history" style="max-width: 760px;" onclick="event.stopPropagation()">
+            <span class="close-modal" onclick="closeHistoryModal()">&times;</span>
+            <h2 style="margin-bottom: 4px;">🕒 Pesquisas Salvas em Memória</h2>
+            <p style="font-size: 0.85rem; color: var(--text-dim); margin-bottom: 16px;">
+                Todas as pesquisas, resultados e classificações feitas ficam preservados em memória nesta sessão (sem gravação em disco).
+            </p>
+
+            <div id="history-list" class="history-list"></div>
+
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-top: 16px; border-top: 1px solid var(--border); padding-top: 14px;">
+                <button class="btn-action" style="color: #f87171; border-color: #f87171; font-size: 0.8rem;" onclick="clearSearchHistory()">🗑 Limpar Todas da Memória</button>
+                <button class="btn-search" style="margin-top: 0; width: auto; padding: 8px 24px;" onclick="closeHistoryModal()">Fechar</button>
+            </div>
         </div>
     </div>
 

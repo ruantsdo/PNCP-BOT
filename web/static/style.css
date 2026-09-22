@@ -1109,4 +1109,203 @@ h1 {
 
 .toast-info {
     border-left-color: var(--accent);
-}
+}
+
+/* ── Search History in Memory ────────────────────────────────────────── */
+.search-history-bar {
+    max-width: 1200px;
+    margin: 12px auto 0;
+    padding: 0 32px;
+}
+
+.history-bar-inner {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 8px 14px;
+    overflow-x: auto;
+}
+
+.history-bar-title {
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: #38bdf8;
+    white-space: nowrap;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+}
+
+.history-chips {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    flex: 1;
+    overflow-x: auto;
+    padding-bottom: 2px;
+}
+
+.history-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 12px;
+    border-radius: 20px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    font-size: 0.75rem;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: all var(--transition);
+}
+
+.history-chip:hover {
+    border-color: #38bdf8;
+    color: var(--text);
+    background: var(--surface2);
+}
+
+.history-chip.active {
+    background: rgba(56, 189, 248, 0.15);
+    border-color: #38bdf8;
+    color: #38bdf8;
+    font-weight: 600;
+}
+
+.history-chip-count {
+    background: var(--surface2);
+    padding: 1px 6px;
+    border-radius: 10px;
+    font-size: 0.68rem;
+}
+
+.history-chip.active .history-chip-count {
+    background: rgba(56, 189, 248, 0.25);
+    color: #e0f2fe;
+}
+
+.btn-clear-history {
+    background: transparent;
+    border: none;
+    color: var(--text-dim);
+    font-size: 0.75rem;
+    cursor: pointer;
+    padding: 4px 8px;
+    border-radius: 4px;
+    transition: all var(--transition);
+}
+
+.btn-clear-history:hover {
+    color: var(--red);
+    background: rgba(239, 68, 68, 0.1);
+}
+
+/* History Modal List */
+.history-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    max-height: 480px;
+    overflow-y: auto;
+    padding-right: 4px;
+}
+
+.history-card {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 12px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    transition: all var(--transition);
+}
+
+.history-card:hover {
+    border-color: var(--accent);
+}
+
+.history-card.active {
+    border-color: #38bdf8;
+    box-shadow: 0 0 10px rgba(56, 189, 248, 0.2);
+}
+
+.history-card-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+}
+
+.history-card-title {
+    font-size: 0.92rem;
+    font-weight: 600;
+    color: var(--text);
+}
+
+.history-card-time {
+    font-size: 0.75rem;
+    color: var(--text-dim);
+    white-space: nowrap;
+}
+
+.history-card-meta {
+    font-size: 0.78rem;
+    color: var(--text-dim);
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.history-card-stats {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    align-items: center;
+}
+
+.history-stat-tag {
+    font-size: 0.72rem;
+    padding: 2px 8px;
+    border-radius: 12px;
+    border: 1px solid var(--border);
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.history-stat-to_analyze {
+    border-color: rgba(192, 132, 252, 0.3);
+    color: #c084fc;
+    background: rgba(192, 132, 252, 0.1);
+}
+
+.history-stat-approved {
+    border-color: rgba(34, 197, 94, 0.3);
+    color: var(--green);
+    background: var(--green-bg);
+}
+
+.history-stat-rejected {
+    border-color: rgba(239, 68, 68, 0.3);
+    color: var(--red);
+    background: var(--red-bg);
+}
+
+.history-stat-pending {
+    border-color: rgba(234, 179, 8, 0.3);
+    color: var(--yellow);
+    background: var(--yellow-bg);
+}
+
+.history-card-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: 4px;
+}
+

@@ -1,11 +1,14 @@
-/* ── PNCP Bot Web — App Logic ─────────────────────────────────────────── */
-
 let allResults = [];
 let currentFilter = "all";
 let currentResultFilter = "all"; // 'all' | 'with_result' | 'without_result'
 let currentJobId = null;
 let pollTimer = null;
 let isSearchStopped = false;
+
+// ── Search History in Memory ──────────────────────────────────────────
+const MAX_SEARCH_HISTORY = 15;
+let searchHistory = [];
+let activeSearchId = null;
 
 // ── Toast System ─────────────────────────────────────────────────────────────
 /**
@@ -240,6 +243,9 @@ function startSearch(e) {
         return;
     }
 
+    // Registra a nova pesquisa no histórico em memória
+    registerNewSearch(params);
+
     btn.disabled = true;
     btnText.textContent = "⏳ Buscando…";
 
@@ -402,6 +408,8 @@ function pollJob(jobId) {
                     if (job.status === "done") {
                         setFilter("to_analyze");
                     }
+                    saveCurrentSearchState();
+                    updateHistoryUI();
                     showResults();
                 }
 
@@ -474,6 +482,8 @@ function finishSearchUI(msg, status = "done") {
         if (status === "done") {
             setFilter("to_analyze");
         }
+        saveCurrentSearchState();
+        updateHistoryUI();
         showResults();
     }
 }
@@ -663,8 +673,10 @@ function renderCards() {
 // ── Actions ─────────────────────────────────────────────────────────────
 function setStatus(idx, status) {
     allResults[idx].status = status;
+    saveCurrentSearchState();
     updateStats();
     renderCards();
+    updateHistoryUI();
 }
 
 // Feature: Deep linking with autoPage + autoItem params
@@ -768,8 +780,10 @@ function checkResults(idx) {
                     item.fornecedor = data.data[0].nomeRazaoSocialFornecedor;
                 }
                 showToast(`✓ Detalhes carregados para Item #${item.item_id}`, 'success');
+                saveCurrentSearchState();
                 updateStats();
                 renderCards();
+                updateHistoryUI();
             } else {
                 // Exclusão automática retornada se verificado manualmente com o botão
                 setStatus(idx, 'rejected');
@@ -864,6 +878,10 @@ function exportApproved() {
 }
 
 function newSearch() {
+    // Salva o estado da pesquisa atual antes de limpar
+    saveCurrentSearchState();
+    activeSearchId = null;
+
     // ── Hard reset: state & cache ─────────────────────────────────────────
     allResults = [];
     readItems.clear();
@@ -920,7 +938,217 @@ function newSearch() {
     _timerStart = null;
     _updateStatusPanel();
 
+    updateHistoryUI();
     window.scrollTo({ top: 0, behavior: "smooth" });
+}
+
+// ── Search History in Memory Operations ──────────────────────────────────
+function saveCurrentSearchState() {
+    if (!activeSearchId || allResults.length === 0) return;
+    const entry = searchHistory.find(h => h.id === activeSearchId);
+    if (!entry) return;
+
+    entry.results = allResults;
+    entry.checkCache = { ...checkCache };
+    entry.readItems = Array.from(readItems);
+    entry.activeSmartTags = Array.from(activeSmartTags);
+    entry.currentFilter = currentFilter;
+    entry.currentResultFilter = currentResultFilter;
+    entry.itemsVerified = _itemsVerified;
+}
+
+function registerNewSearch(params) {
+    saveCurrentSearchState();
+    const id = "search-" + Date.now();
+    const entry = {
+        id,
+        timestamp: new Date(),
+        keywords: params.keywords || "",
+        params: { ...params },
+        results: [],
+        checkCache: {},
+        readItems: [],
+        activeSmartTags: [],
+        currentFilter: "to_analyze",
+        currentResultFilter: "all",
+        itemsVerified: 0,
+    };
+    searchHistory.unshift(entry);
+    if (searchHistory.length > MAX_SEARCH_HISTORY) {
+        searchHistory.pop();
+    }
+    activeSearchId = id;
+    updateHistoryUI();
+    return entry;
+}
+
+function loadSearchFromHistory(id) {
+    const entry = searchHistory.find(h => h.id === id);
+    if (!entry) return;
+
+    saveCurrentSearchState();
+
+    activeSearchId = entry.id;
+    allResults = entry.results || [];
+
+    // Restaurar cache de checagens
+    Object.keys(checkCache).forEach(k => delete checkCache[k]);
+    Object.assign(checkCache, entry.checkCache || {});
+
+    // Restaurar itens lidos
+    readItems.clear();
+    (entry.readItems || []).forEach(idx => readItems.add(idx));
+
+    // Restaurar smart tags
+    activeSmartTags.clear();
+    (entry.activeSmartTags || []).forEach(tag => activeSmartTags.add(tag));
+
+    _itemsVerified = entry.itemsVerified || 0;
+
+    // Preencher campos do formulário para o usuário ver os parâmetros da busca
+    const form = document.getElementById("search-form");
+    if (form && entry.params) {
+        if (form.keywords) form.keywords.value = entry.params.keywords || "";
+        if (form.uf) form.uf.value = entry.params.uf || "";
+        if (form.status) form.status.value = entry.params.status || "";
+        if (form.date_from) form.date_from.value = entry.params.date_from || "";
+        if (form.date_to) form.date_to.value = entry.params.date_to || "";
+        if (form.contratante) form.contratante.value = entry.params.contratante || "";
+        if (form.max_processes) form.max_processes.value = entry.params.max_processes || 50;
+        if (form.fuzzy_threshold) form.fuzzy_threshold.value = entry.params.fuzzy_threshold || 80;
+    }
+
+    // Restaurar filtros
+    currentFilter = entry.currentFilter || "to_analyze";
+    currentResultFilter = entry.currentResultFilter || "all";
+    document.querySelectorAll(".pill[data-filter]").forEach(b => {
+        b.classList.toggle("active", b.dataset.filter === currentFilter);
+    });
+    document.querySelectorAll(".pill[data-result-filter]").forEach(b => {
+        b.classList.toggle("active", b.dataset.resultFilter === currentResultFilter);
+    });
+
+    // Reconstruir smart tags
+    buildSmartTags(entry.keywords);
+    document.querySelectorAll(".smart-tag").forEach(b => {
+        b.classList.toggle("active", activeSmartTags.has(b.textContent));
+    });
+
+    // Esconder seção de progresso se estiver ativa e mostrar resultados
+    hide("progress-section");
+    showResults();
+    updateHistoryUI();
+    closeHistoryModal();
+
+    showToast(`📂 Pesquisa carregada da memória (${allResults.length} itens)`, 'info');
+}
+
+function updateHistoryUI() {
+    // Contador no header
+    const countEl = document.getElementById("history-count");
+    if (countEl) countEl.textContent = searchHistory.length;
+
+    // Barra de histórico
+    const bar = document.getElementById("search-history-bar");
+    const chipsContainer = document.getElementById("history-chips");
+
+    if (bar && chipsContainer) {
+        if (searchHistory.length === 0) {
+            bar.classList.add("hidden");
+            chipsContainer.innerHTML = "";
+        } else {
+            bar.classList.remove("hidden");
+            chipsContainer.innerHTML = searchHistory.map(entry => {
+                const isActive = entry.id === activeSearchId;
+                const kw = escapeHtml(entry.keywords || "Busca");
+                const count = (entry.results || []).length;
+                const activeCls = isActive ? "active" : "";
+                const ufStr = entry.params && entry.params.uf ? ` [${escapeHtml(entry.params.uf)}]` : "";
+                return `<button class="history-chip ${activeCls}" onclick="loadSearchFromHistory('${entry.id}')" title="Clique para carregar esta pesquisa da memória">
+                    <span>${kw}${ufStr}</span>
+                    <span class="history-chip-count">${count}</span>
+                </button>`;
+            }).join("");
+        }
+    }
+
+    // Modal de histórico
+    const listContainer = document.getElementById("history-list");
+    if (listContainer) {
+        if (searchHistory.length === 0) {
+            listContainer.innerHTML = '<p style="text-align:center;color:var(--text-dim);padding:30px">Nenhuma pesquisa salva em memória nesta sessão.</p>';
+        } else {
+            listContainer.innerHTML = searchHistory.map((entry) => {
+                const isActive = entry.id === activeSearchId;
+                const kw = escapeHtml(entry.keywords || "Sem palavras-chave");
+                const total = (entry.results || []).length;
+                const pending = (entry.results || []).filter(r => r.status === "pending").length;
+                const toAnalyze = (entry.results || []).filter(r => r.status === "to_analyze").length;
+                const approved = (entry.results || []).filter(r => r.status === "approved").length;
+                const rejected = (entry.results || []).filter(r => r.status === "rejected").length;
+
+                const timeStr = entry.timestamp ? new Date(entry.timestamp).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "";
+                const ufStr = entry.params && entry.params.uf ? `UF: <strong>${escapeHtml(entry.params.uf)}</strong>` : "UF: Todos";
+                const dateStr = entry.params && entry.params.date_from ? `Início: ${escapeHtml(entry.params.date_from)}` : "";
+
+                return `
+                <div class="history-card ${isActive ? 'active' : ''}">
+                    <div class="history-card-top">
+                        <div style="display:flex;align-items:center;gap:8px">
+                            <span class="history-card-title">${kw}</span>
+                            ${isActive ? '<span class="badge" style="background:rgba(56,189,248,0.2);color:#38bdf8;font-size:0.65rem">Ativa Agora</span>' : ''}
+                        </div>
+                        <span class="history-card-time">🕒 ${timeStr}</span>
+                    </div>
+                    <div class="history-card-meta">
+                        <span>${ufStr}</span>
+                        ${dateStr ? `<span>${dateStr}</span>` : ''}
+                        <span>Total: <strong>${total}</strong> itens</span>
+                    </div>
+                    <div class="history-card-stats">
+                        <span class="history-stat-tag history-stat-to_analyze">🔎 ${toAnalyze} para analisar</span>
+                        <span class="history-stat-tag history-stat-approved">✓ ${approved} aprovados</span>
+                        <span class="history-stat-tag history-stat-pending">⏳ ${pending} pendentes</span>
+                        <span class="history-stat-tag history-stat-rejected">✗ ${rejected} rejeitados</span>
+                    </div>
+                    <div class="history-card-actions">
+                        <button class="btn-action" style="font-size:0.75rem;padding:4px 10px;border-color:#f87171;color:#f87171" onclick="deleteSearchFromHistory('${entry.id}', event)">🗑 Remover</button>
+                        <button class="btn-action" style="font-size:0.75rem;padding:4px 14px;border-color:#38bdf8;color:#38bdf8" onclick="loadSearchFromHistory('${entry.id}')">👁 Carregar</button>
+                    </div>
+                </div>
+                `;
+            }).join("");
+        }
+    }
+}
+
+function openHistoryModal() {
+    updateHistoryUI();
+    document.getElementById("history-modal").classList.remove("hidden");
+}
+
+function closeHistoryModal() {
+    document.getElementById("history-modal").classList.add("hidden");
+}
+
+function clearSearchHistory() {
+    if (searchHistory.length === 0) return;
+    if (!confirm("Deseja realmente limpar todas as pesquisas salvas da memória nesta sessão?")) return;
+    searchHistory = [];
+    activeSearchId = null;
+    updateHistoryUI();
+    closeHistoryModal();
+    showToast("🗑 Histórico em memória esvaziado.", "info");
+}
+
+function deleteSearchFromHistory(id, event) {
+    if (event) event.stopPropagation();
+    searchHistory = searchHistory.filter(h => h.id !== id);
+    if (activeSearchId === id) {
+        activeSearchId = searchHistory.length > 0 ? searchHistory[0].id : null;
+    }
+    updateHistoryUI();
+    showToast("Pesquisa removida da memória.", "info");
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────
