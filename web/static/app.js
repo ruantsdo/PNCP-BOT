@@ -299,14 +299,13 @@ function startSearch(e) {
     // Request notification permission early (requires user gesture context)
     _requestNotificationPermission();
 
+    const skipBtn = document.getElementById("btn-skip-process");
+    if (skipBtn) skipBtn.classList.remove("hidden");
+
     if (document.getElementById("local_processing").checked) {
-        const skipBtn = document.getElementById("btn-skip-process");
-        if (skipBtn) skipBtn.classList.remove("hidden");
         startLocalSearch(params);
         return;
     }
-    const skipBtn = document.getElementById("btn-skip-process");
-    if (skipBtn) skipBtn.classList.add("hidden");
 
     // show progress, hide results
     show("progress-section");
@@ -458,6 +457,9 @@ function pollJob(jobId) {
                 btn.disabled = false;
                 btnText.textContent = "🔍 Buscar Itens";
 
+                const skipBtn = document.getElementById("btn-skip-process");
+                if (skipBtn) skipBtn.classList.add("hidden");
+
                 document.getElementById("progress-bar").style.width = "100%";
 
                 if (job.status === "captcha") {
@@ -483,8 +485,13 @@ function pollJob(jobId) {
 
                 if (job.results && job.results.length > 0) {
                     allResults = job.results;
-                    if (job.status === "done") {
-                        setFilter("to_analyze");
+                    if (job.status === "done" || job.status === "cancelled") {
+                        const hasToAnalyze = allResults.some(r => r.status === "to_analyze");
+                        if (hasToAnalyze) {
+                            setFilter("to_analyze");
+                        } else {
+                            setFilter("all");
+                        }
                     }
                     saveCurrentSearchState();
                     updateHistoryUI();
@@ -607,20 +614,37 @@ function setFilter(filter) {
     });
 }
 
+function skipCurrentProcess() {
+    window.skipProcess = true;
+    showToast("⏭ Pulando processo atual…", "info");
+    if (currentJobId) {
+        fetch(`/api/job/${currentJobId}/skip`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" }
+        }).catch(err => {
+            console.warn("Erro ao solicitar pular processo:", err);
+        });
+    }
+}
+
 function finishSearchUI(msg, status = "done") {
     const btn = document.getElementById("btn-search");
     const btnText = document.getElementById("btn-search-text");
     btn.disabled = false;
     btnText.textContent = "🔍 Buscar Itens";
+
+    const skipBtn = document.getElementById("btn-skip-process");
+    if (skipBtn) skipBtn.classList.add("hidden");
+
     document.getElementById("progress-bar").style.width = "100%";
     document.getElementById("progress-label").textContent = msg;
     if (allResults.length > 0) {
         if (status === "done" || status === "cancelled") {
             const hasToAnalyze = allResults.some(r => r.status === "to_analyze");
-            if (currentFilter === "all" || (!hasToAnalyze && currentFilter === "to_analyze")) {
-                setFilter("all");
-            } else {
+            if (hasToAnalyze) {
                 setFilter("to_analyze");
+            } else {
+                setFilter("all");
             }
         }
         saveCurrentSearchState();
@@ -1044,6 +1068,8 @@ function newSearch() {
     // ── Hard reset: UI ────────────────────────────────────────────────────
     hide("results-section");
     hide("progress-section");
+    const skipBtn = document.getElementById("btn-skip-process");
+    if (skipBtn) skipBtn.classList.add("hidden");
 
     // Filter chips & text
     document.getElementById("smart-tags").innerHTML = "";

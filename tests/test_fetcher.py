@@ -162,3 +162,28 @@ class TestDiscoverProcesses:
             # search two keywords that both find the same process
             results = fetcher.discover_processes(["cabo", "eletrico"], uf="BA")
             assert len(results) == 1
+
+    def test_process_older_than_one_year_is_ignored(self, fetcher):
+        from datetime import date, timedelta
+        recent_date = (date.today() - timedelta(days=30)).isoformat() + "T10:00:00"
+        old_date = (date.today() - timedelta(days=400)).isoformat() + "T10:00:00"
+
+        page = {
+            "items": [
+                {"numero_controle_pncp": "RECENT", "uf": "BA", "item_url": "/compras/111/2026/1",
+                 "data_publicacao_pncp": recent_date, "orgao_nome": "ORG RECENT"},
+                {"numero_controle_pncp": "OLD", "uf": "BA", "item_url": "/compras/111/2024/2",
+                 "data_publicacao_pncp": old_date, "orgao_nome": "ORG OLD"},
+            ],
+            "total": 2,
+        }
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.headers = {"Content-Type": "application/json"}
+        mock_resp.json.return_value = page
+
+        with patch.object(fetcher.session, "get", return_value=mock_resp):
+            results = fetcher.discover_processes(["cabo"])
+            assert len(results) == 1
+            assert results[0]["numero_controle_pncp"] == "RECENT"
+

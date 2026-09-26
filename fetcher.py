@@ -9,10 +9,11 @@ Handles all HTTP communication with the PNCP APIs:
 
 from __future__ import annotations
 
+from datetime import date, timedelta
 import logging
 import re
 import time
-from typing import Any
+from typing import Any, Callable
 
 import requests
 from requests.adapters import HTTPAdapter
@@ -43,18 +44,25 @@ def _build_retry(max_retries: int) -> Retry:
     Passing the wrong kwarg raises TypeError silently in some builds,
     disabling retries entirely.  We detect the supported kwarg at runtime.
     """
-    common = dict(
-        total=max_retries,
-        backoff_factor=config.RETRY_BACKOFF_FACTOR,
-        status_forcelist=config.RETRY_STATUS_CODES,
-        raise_on_status=False,
-    )
     try:
         # urllib3 >= 1.26.0
-        return Retry(**common, allowed_methods=["GET"])
+        return Retry(
+            total=max_retries,
+            backoff_factor=config.RETRY_BACKOFF_FACTOR,
+            status_forcelist=config.RETRY_STATUS_CODES,
+            raise_on_status=False,
+            allowed_methods=["GET"],
+        )
     except TypeError:
         # urllib3 < 1.26.0 — fallback to legacy kwarg
-        return Retry(**common, method_whitelist=["GET"])
+        legacy_kwargs: dict[str, Any] = {"method_whitelist": ["GET"]}
+        return Retry(
+            total=max_retries,
+            backoff_factor=config.RETRY_BACKOFF_FACTOR,
+            status_forcelist=config.RETRY_STATUS_CODES,
+            raise_on_status=False,
+            **legacy_kwargs,
+        )
 
 
 # ── Fetcher ──────────────────────────────────────────────────────────────────
@@ -204,9 +212,12 @@ class PNCPFetcher:
         seq: int,
         page_size: int = 500,
         is_cancelled: Callable[[], bool] | None = None,
+        is_skipped: Callable[[], bool] | None = None,
     ) -> list[dict]:
         """Fetch ALL items for a process, paginating if necessary."""
         if is_cancelled and is_cancelled():
+            return []
+        if is_skipped and is_skipped():
             return []
 
         total_count = self.get_items_count(cnpj, ano, seq, is_cancelled=is_cancelled)
@@ -219,6 +230,8 @@ class PNCPFetcher:
 
         while page <= total_pages:
             if is_cancelled and is_cancelled():
+                return all_items
+            if is_skipped and is_skipped():
                 return all_items
 
             items = self._get(
@@ -275,6 +288,10 @@ class PNCPFetcher:
         seen: set[str] = set()
         results: list[dict] = []
 
+        # Enforce maximum process age of 1 year (365 days)
+        one_year_ago = (date.today() - timedelta(days=365)).isoformat()
+        effective_date_from = max(date_from, one_year_ago) if date_from else one_year_ago
+
         for kw in keywords:
             if is_cancelled and is_cancelled():
                 log.info("discover_processes cancelled by user.")
@@ -301,16 +318,21 @@ class PNCPFetcher:
                     if pid in seen:
                         continue
 
-                    # ── client-side filters (date, contratante) ────────
-
-                    if date_from:
-                        pub = proc.get("data_publicacao_pncp", "")[:10]
-                        if pub < date_from:
+                    # ── client-side filters (date: max 1 year age, contratante) ────────
+                    pub = proc.get("data_publicacao_pncp", "")[:10]
+                    if pub:
+                        if pub < effective_date_from:
                             continue
-                    if date_to:
-                        pub = proc.get("data_publicacao_pncp", "")[:10]
-                        if pub > date_to:
+                        if date_to and pub > date_to:
                             continue
+                    else:
+                        item_url = proc.get("item_url", "")
+                        try:
+                            _, proc_ano, _ = self.parse_item_url(item_url)
+                            if proc_ano < date.today().year - 1:
+                                continue
+                        except ValueError:
+                            pass
 
                     if contratante:
                         orgao = (proc.get("orgao_nome") or "").lower()

@@ -99,6 +99,8 @@ def run_extraction(
     on_progress: ProgressCallback | None = None,
     is_cancelled: Callable[[], bool] | None = None,
     on_record: Callable[[dict[str, Any]], None] | None = None,
+    is_skipped: Callable[[], bool] | None = None,
+    reset_skip: Callable[[], None] | None = None,
 ) -> ExtractionResult:
     """
     Execute the full extraction pipeline.
@@ -115,6 +117,10 @@ def run_extraction(
         ``is_cancelled()`` — returns True if cancellation has been requested.
     on_record : callable, optional
         ``on_record(rec)`` — called immediately when each matching item record is built.
+    is_skipped : callable, optional
+        ``is_skipped()`` — returns True if skipping the current process has been requested.
+    reset_skip : callable, optional
+        ``reset_skip()`` — called to reset the skip flag after skipping.
 
     Returns
     -------
@@ -175,6 +181,12 @@ def run_extraction(
             emit(f"⏹ Busca interrompida pelo usuário após verificar {i - 1} de {len(processes)} processos.")
             break
 
+        if is_skipped and is_skipped():
+            if reset_skip:
+                reset_skip()
+            emit("⏭ Processo pulado pelo usuário.")
+            continue
+
         pid = proc.get("numero_controle_pncp", "?")
         item_url = proc.get("item_url", "")
 
@@ -188,7 +200,7 @@ def run_extraction(
             continue
 
         try:
-            items = fetcher.get_items(cnpj, ano, seq, is_cancelled=is_cancelled)
+            items = fetcher.get_items(cnpj, ano, seq, is_cancelled=is_cancelled, is_skipped=is_skipped)
         except CaptchaDetected as e:
             emit(f"⚠ CAPTCHA: {e}")
             break
@@ -209,10 +221,21 @@ def run_extraction(
             emit(f"⏹ Busca interrompida pelo usuário no Processo {pid}.")
             break
 
+        if is_skipped and is_skipped():
+            if reset_skip:
+                reset_skip()
+            emit(f"⏭ Processo {pid} pulado pelo usuário.")
+            continue
+
         emit(f"[{i}/{len(processes)}] Verificando {len(items)} itens do Processo {pid}")
 
         for item_index, item in enumerate(items):
             if is_cancelled and is_cancelled():
+                break
+            if is_skipped and is_skipped():
+                if reset_skip:
+                    reset_skip()
+                emit(f"⏭ Varredura dos itens de {pid} pulada pelo usuário.")
                 break
             desc = item.get("descricao", "")
             matched = matches_item(desc, parsed, fuzzy_threshold=params.fuzzy_threshold)
@@ -222,6 +245,15 @@ def run_extraction(
                 if on_record:
                     on_record(rec)
                 emit(f"  ✓ Item #{item.get('numeroItem')} → {desc[:60]}")
+            if is_skipped and is_skipped():
+                if reset_skip:
+                    reset_skip()
+                emit(f"⏭ Varredura dos itens de {pid} pulada pelo usuário.")
+                break
+
+        if is_skipped and is_skipped():
+            if reset_skip:
+                reset_skip()
 
     # 4. Check if cancelled
     if is_cancelled and is_cancelled():

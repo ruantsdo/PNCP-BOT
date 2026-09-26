@@ -116,8 +116,7 @@
         <!-- Status indicators: item counter + elapsed timer -->
         <div id="status-indicators" class="status-indicators"></div>
         <div style="display: flex; gap: 8px; justify-content: flex-end; margin-bottom: 8px;" id="progress-actions">
-            <!-- Skip button: only visible during local processing -->
-            <button id="btn-skip-process" class="btn-action hidden" style="font-size: 0.75rem; padding: 4px 10px;" onclick="window.skipProcess = true" title="Pula a varredura do processo atual">⏭ Pular Processo</button>
+            <button id="btn-skip-process" class="btn-action hidden" style="font-size: 0.75rem; padding: 4px 10px;" onclick="skipCurrentProcess()" title="Pula a varredura do processo atual">⏭ Pular Processo</button>
         </div>
         <div class="log-panel" id="log-panel"></div>
     </section>

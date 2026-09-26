@@ -74,7 +74,7 @@ def _proxy_get(url: str, params: dict | None = None, timeout: int = _PROXY_TIMEO
 
 
 # ── Background extraction worker ────────────────────────────────────────────
-def _worker(job_id: str, params: dict, cancel_event: threading.Event) -> None:
+def _worker(job_id: str, params: dict, cancel_event: threading.Event, skip_event: threading.Event) -> None:
     """Run extraction in a background thread, updating the job dict."""
     job = jobs[job_id]
     job["status"] = "running"
@@ -103,6 +103,8 @@ def _worker(job_id: str, params: dict, cancel_event: threading.Event) -> None:
             on_progress=on_progress,
             is_cancelled=cancel_event.is_set,
             on_record=on_record,
+            is_skipped=skip_event.is_set,
+            reset_skip=skip_event.clear,
         )
         job["results"] = result.records
         job["status"] = result.status
@@ -123,6 +125,7 @@ def api_search():
     data = request.json or {}
     job_id = str(uuid.uuid4())[:8]
     cancel_event = threading.Event()
+    skip_event = threading.Event()
 
     jobs[job_id] = {
         "id": job_id,
@@ -133,9 +136,10 @@ def api_search():
         "items_verified": 0,
         "params": data,
         "_cancel_event": cancel_event,
+        "_skip_event": skip_event,
     }
 
-    thread = threading.Thread(target=_worker, args=(job_id, data, cancel_event), daemon=True)
+    thread = threading.Thread(target=_worker, args=(job_id, data, cancel_event, skip_event), daemon=True)
     thread.start()
 
     return jsonify({"job_id": job_id})
@@ -180,6 +184,23 @@ def api_job_cancel(job_id: str):
         "logs": job["logs"][-30:],
         "items_verified": job.get("items_verified", 0),
     })
+
+
+@app.route("/api/job/<job_id>/skip", methods=["POST"])
+def api_job_skip(job_id: str):
+    job = jobs.get(job_id)
+    if not job:
+        return jsonify({"error": "Job not found"}), 404
+
+    skip_event: threading.Event | None = job.get("_skip_event")
+    if skip_event:
+        skip_event.set()
+
+    skip_msg = "⏭ Pular processo solicitado pelo usuário."
+    if not job["logs"] or job["logs"][-1] != skip_msg:
+        job["logs"].append(skip_msg)
+
+    return jsonify({"success": True, "id": job["id"]})
 
 
 @app.route("/api/export", methods=["POST"])

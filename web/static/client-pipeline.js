@@ -277,19 +277,29 @@ async function runLocalExtraction(params, logCallback, progressCallback) {
                 });
                 
                 const items = searchRes.items || [];
-                if (items.length === 0) break;
-                
+                const now = new Date();
+                const oneYearAgoDate = new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000);
+                const oneYearAgoStr = oneYearAgoDate.toISOString().substring(0, 10);
+                const effectiveDateFrom = (params.date_from && params.date_from > oneYearAgoStr)
+                    ? params.date_from
+                    : oneYearAgoStr;
+
                 for (const proc of items) {
                     const pid = proc.numero_controle_pncp;
                     if (!pid || seenPids.has(pid)) continue;
                     
-                    if (params.date_from) {
-                        const pub = (proc.data_publicacao_pncp || "").substring(0,10);
-                        if (pub < params.date_from) continue;
-                    }
-                    if (params.date_to) {
-                        const pub = (proc.data_publicacao_pncp || "").substring(0,10);
-                        if (pub > params.date_to) continue;
+                    const pub = (proc.data_publicacao_pncp || "").substring(0, 10);
+                    if (pub) {
+                        if (pub < effectiveDateFrom) continue;
+                        if (params.date_to && pub > params.date_to) continue;
+                    } else {
+                        try {
+                            const parts = (proc.item_url || "").split("/");
+                            if (parts.length >= 4) {
+                                const ano = parseInt(parts[3], 10);
+                                if (!isNaN(ano) && ano < now.getFullYear() - 1) continue;
+                            }
+                        } catch (_) {}
                     }
                     if (params.contratante) {
                         const orgao = (proc.orgao_nome || "").toLowerCase();
@@ -344,6 +354,12 @@ async function runLocalExtraction(params, logCallback, progressCallback) {
             progressCallback(processedCount, processes.length, `Verificando ${pid}…`);
         }
 
+        if (window.skipProcess) {
+            logCallback(`⏭ Processo ${pid} pulado pelo usuário.`);
+            window.skipProcess = false;
+            continue;
+        }
+
         // ── Fetch item count (with robust error handling) ─────────────────────
         let itemsCount = 0;
         try {
@@ -352,6 +368,12 @@ async function runLocalExtraction(params, logCallback, progressCallback) {
         } catch (e) {
             if (typeof isSearchStopped !== 'undefined' && isSearchStopped) return;
             logCallback(`⚠ Não foi possível obter contagem de itens para ${pid}: ${e.message} — processo ignorado.`);
+            continue;
+        }
+
+        if (window.skipProcess) {
+            logCallback(`⏭ Processo ${pid} pulado pelo usuário.`);
+            window.skipProcess = false;
             continue;
         }
 
@@ -369,7 +391,7 @@ async function runLocalExtraction(params, logCallback, progressCallback) {
             if (typeof isSearchStopped !== 'undefined' && isSearchStopped) return;
             
             if (window.skipProcess) {
-                logCallback(`Processo ${pid} pulado pelo usuário.`);
+                logCallback(`⏭ Processo ${pid} pulado pelo usuário.`);
                 window.skipProcess = false;
                 break; 
             }
@@ -384,8 +406,19 @@ async function runLocalExtraction(params, logCallback, progressCallback) {
                 break; // skip remaining pages of this process only
             }
             
+            if (window.skipProcess) {
+                logCallback(`⏭ Processo ${pid} pulado pelo usuário.`);
+                window.skipProcess = false;
+                break;
+            }
+
             for (let i = 0; i < localItems.length; i++) {
                 if (typeof isSearchStopped !== 'undefined' && isSearchStopped) return;
+                if (window.skipProcess) {
+                    logCallback(`⏭ Varredura dos itens de ${pid} pulada pelo usuário.`);
+                    window.skipProcess = false;
+                    break;
+                }
                 const item = localItems[i];
                 const desc = item.descricao || "";
                 const normDesc = normalizeStr(desc);
